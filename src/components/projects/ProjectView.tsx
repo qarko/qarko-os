@@ -24,7 +24,7 @@ export function ProjectView() {
           </div>
           <StatusBadge tone={project.status} />
         </div>
-        <div className="grid gap-3 lg:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
           <div className="rounded-md bg-panel p-4">
             <p className="text-xs font-semibold uppercase tracking-normal text-moss">목표</p>
             <p className="mt-2 text-sm font-semibold text-ink">{project.goal.title}</p>

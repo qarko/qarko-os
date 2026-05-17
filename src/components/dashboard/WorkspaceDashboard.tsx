@@ -49,7 +49,7 @@ export function WorkspaceDashboard() {
 
       <section className="mb-6">
         <SectionHeader title="프로젝트 운영 현황" eyebrow="Projects" />
-        <div className="grid gap-3 lg:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
           {projects.map((project) => (
             <button
               key={project.id}
