@@ -3,8 +3,11 @@ import { useQarkoStore } from "../../store/useQarkoStore";
 import { StatusBadge } from "../ui/StatusBadge";
 
 export function ExecutionPanel() {
-  const { activeRun, approvals, actionNotice, runNextStep } = useQarkoStore();
+  const { activeRun, approvals, actionNotice, hermesConnection, hermesStatus, runNextStep } = useQarkoStore();
   const pendingApproval = approvals.find((approval) => approval.status === "pending");
+  const runtimeTone = hermesStatus === "connected" ? "connected" : hermesStatus === "error" ? "failed" : "mock";
+  const runtimeLabel =
+    hermesStatus === "connected" ? "Hermes 연결됨" : hermesStatus === "testing" ? "Hermes 확인 중" : hermesStatus === "error" ? "Hermes 오류" : "Hermes Mock";
 
   return (
     <aside className="flex h-full flex-col">
@@ -19,11 +22,11 @@ export function ExecutionPanel() {
         <div className="grid gap-2 rounded-md bg-panel p-3 text-xs text-stone-600">
           <div className="flex items-center justify-between">
             <span>Runtime</span>
-            <StatusBadge tone="mock" label="Hermes Mock" />
+            <StatusBadge tone={runtimeTone} label={runtimeLabel} />
           </div>
           <div className="flex items-center justify-between">
             <span>Model</span>
-            <span className="font-medium text-ink">{activeRun.modelName}</span>
+            <span className="font-medium text-ink">{hermesStatus === "connected" ? hermesConnection.modelName : activeRun.modelName}</span>
           </div>
           <div className="flex items-center justify-between">
             <span>Agent</span>

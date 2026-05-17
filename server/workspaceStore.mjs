@@ -38,9 +38,13 @@ export const createWorkspaceStore = ({ filePath } = {}) => {
 
   const save = async (snapshot) => {
     validateSnapshot(snapshot);
+    const savedAt = new Date();
+    if (snapshot.updatedAt && savedAt.toISOString() === snapshot.updatedAt) {
+      savedAt.setMilliseconds(savedAt.getMilliseconds() + 1);
+    }
     const nextSnapshot = {
       ...snapshot,
-      updatedAt: new Date().toISOString(),
+      updatedAt: savedAt.toISOString(),
     };
     await mkdir(dirname(resolvedPath), { recursive: true });
     await writeFile(resolvedPath, `${JSON.stringify(nextSnapshot, null, 2)}\n`, 'utf8');

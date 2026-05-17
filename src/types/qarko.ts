@@ -13,6 +13,7 @@ export type AppView = "workspace" | "project" | "new-project" | "plugins" | "set
 export type ApprovalDecision = "approved" | "revise" | "cancelled";
 export type RuntimeStatus = "connected" | "not_connected" | "mock";
 export type SyncStatus = "idle" | "syncing" | "synced" | "error";
+export type HermesStatus = "not_configured" | "testing" | "connected" | "error";
 
 export interface Workspace {
   id: string;
@@ -143,6 +144,19 @@ export interface NewProjectInput {
   idea: string;
   mode: AutomationMode;
   customRules?: ApprovalRule[];
+}
+
+export interface HermesConnection {
+  endpoint: string;
+  apiKey: string;
+  modelName: string;
+}
+
+export interface HermesConnectionResult {
+  status: "connected" | "error";
+  message: string;
+  modelName?: string;
+  availableModels: string[];
 }
 
 export interface WorkspaceSnapshot {

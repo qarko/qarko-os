@@ -3,7 +3,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test tests/*.test.mjs && tsx --test tests/*.test.ts",
     "preview": "vite preview --host 127.0.0.1",
     "serve": "node scripts/serve-dist.mjs",
     "start": "node server/index.mjs",
@@ -26,6 +26,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3"
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.20.0"
   }
 }

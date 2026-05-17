@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { testHermesConnection } from "../adapters/hermesRuntime";
 import { getDefaultSyncEndpoint, loadWorkspaceSnapshot, saveWorkspaceSnapshot } from "../adapters/workspaceSync";
 import {
   activeRun,
@@ -17,6 +18,8 @@ import type {
   ApprovalDecision,
   Artifact,
   AutomationMode,
+  HermesConnection,
+  HermesStatus,
   NewProjectInput,
   Plugin,
   Project,
@@ -38,6 +41,10 @@ interface QarkoState {
   syncEndpoint: string;
   syncStatus: SyncStatus;
   syncError?: string;
+  hermesConnection: HermesConnection;
+  hermesStatus: HermesStatus;
+  hermesMessage: string;
+  hermesAvailableModels: string[];
   selectProject: (projectId: string) => void;
   setView: (view: AppView) => void;
   createProject: (input: NewProjectInput) => void;
@@ -49,6 +56,8 @@ interface QarkoState {
   setSyncEndpoint: (endpoint: string) => void;
   saveToCloud: () => Promise<void>;
   loadFromCloud: () => Promise<void>;
+  updateHermesConnection: (connection: Partial<HermesConnection>) => void;
+  testHermesRuntime: () => Promise<void>;
 }
 
 const makeProjectName = (idea: string) => {
@@ -224,6 +233,14 @@ export const useQarkoStore = create<QarkoState>()(
       automationPolicies,
       syncEndpoint: getDefaultSyncEndpoint(),
       syncStatus: "idle",
+      hermesConnection: {
+        endpoint: "http://localhost:11434/v1",
+        apiKey: "",
+        modelName: "hermes-3",
+      },
+      hermesStatus: "not_configured",
+      hermesMessage: "Hermes API 주소와 모델을 확인하면 실제 런타임 상태로 전환됩니다.",
+      hermesAvailableModels: [],
       selectProject: (projectId) => set({ selectedProjectId: projectId, view: "project" }),
       setView: (view) => set({ view }),
       createProject: (input) =>
@@ -271,29 +288,35 @@ export const useQarkoStore = create<QarkoState>()(
       runNextStep: () =>
         set((state) => {
           const nextStep = state.activeRun.stepCount + 1;
+          const hermesConnected = state.hermesStatus === "connected";
           return {
             activeRun: {
               ...state.activeRun,
               stepCount: nextStep,
+              modelName: hermesConnected ? state.hermesConnection.modelName || state.activeRun.modelName : state.activeRun.modelName,
               logs: [
                 ...state.activeRun.logs,
                 {
                   id: `log-${nextStep}`,
                   timestamp: "now",
                   roleName: nextStep % 2 === 0 ? "Chief of Staff" : "QA / Reviewer",
-                  message:
-                    nextStep % 2 === 0
+                  message: hermesConnected
+                    ? `${state.hermesConnection.modelName || "Hermes"} 런타임 연결 상태로 다음 실행 후보를 준비했습니다. 실제 에이전트 실행 API는 승인 정책과 연결해 확장할 수 있습니다.`
+                    : nextStep % 2 === 0
                       ? "다음 실행 후보를 정리했습니다. 위험한 외부 작업은 승인 카드로 분리됩니다."
                       : "현재 단계는 mock 실행입니다. Hermes 실제 연결 전까지는 로그와 산출물 흐름을 검증합니다.",
                   status: nextStep % 2 === 0 ? "running" : "needs_approval",
                 },
               ],
-              outputPreview:
-                nextStep % 2 === 0
+              outputPreview: hermesConnected
+                ? "Hermes 연결이 확인되었습니다. 다음 단계에서는 실제 에이전트 실행 요청과 산출물 저장을 연결하면 됩니다."
+                : nextStep % 2 === 0
                   ? "다음 단계 후보가 준비되었습니다. 승인 범위 안의 내부 작업은 자동 진행할 수 있습니다."
                   : "실제 Hermes 에이전트가 연결되면 이 영역에 실행 결과와 산출물 링크가 표시됩니다.",
             },
-            actionNotice: "다음 단계 mock 실행 로그를 추가하고 로컬에 저장했습니다. 실제 에이전트 실행은 Hermes adapter 연결 후 활성화됩니다.",
+            actionNotice: hermesConnected
+              ? "Hermes 연결 상태를 사용해 다음 단계 로그를 추가했습니다."
+              : "다음 단계 mock 실행 로그를 추가하고 로컬에 저장했습니다. 실제 에이전트 실행은 Hermes adapter 연결 후 활성화됩니다.",
           };
         }),
       resetWorkspace: () =>
@@ -307,6 +330,45 @@ export const useQarkoStore = create<QarkoState>()(
           activeRun,
           actionNotice: "워크스페이스를 초기 MVP 샘플 상태로 되돌렸습니다.",
         }),
+      updateHermesConnection: (connection) =>
+        set((state) => ({
+          hermesConnection: {
+            ...state.hermesConnection,
+            ...connection,
+          },
+          hermesStatus: "not_configured",
+          hermesMessage: "Hermes 연결 정보가 변경되었습니다. 연결 테스트를 다시 실행하세요.",
+          actionNotice: "Hermes 연결 정보를 로컬에 저장했습니다.",
+        })),
+      testHermesRuntime: async () => {
+        const connection = get().hermesConnection;
+        set({
+          hermesStatus: "testing",
+          hermesMessage: "Hermes 연결을 확인하는 중입니다.",
+          actionNotice: "Hermes 런타임 연결을 테스트하고 있습니다.",
+        });
+        const result = await testHermesConnection(connection);
+        if (result.status === "connected") {
+          set((state) => ({
+            hermesStatus: "connected",
+            hermesMessage: result.message,
+            hermesAvailableModels: result.availableModels,
+            activeRun: {
+              ...state.activeRun,
+              modelName: result.modelName ?? state.hermesConnection.modelName,
+            },
+            actionNotice: `Hermes 연결 성공: ${result.modelName ?? state.hermesConnection.modelName}`,
+          }));
+          return;
+        }
+
+        set({
+          hermesStatus: "error",
+          hermesMessage: result.message,
+          hermesAvailableModels: result.availableModels,
+          actionNotice: "Hermes 연결에 실패했습니다. API 주소, 키, 모델명을 확인하세요.",
+        });
+      },
       setSyncEndpoint: (endpoint) =>
         set({
           syncEndpoint: endpoint,
@@ -368,6 +430,13 @@ export const useQarkoStore = create<QarkoState>()(
         activeRun: state.activeRun,
         actionNotice: state.actionNotice,
         syncEndpoint: state.syncEndpoint,
+        hermesConnection: {
+          ...state.hermesConnection,
+          apiKey: state.hermesConnection.apiKey,
+        },
+        hermesStatus: state.hermesStatus,
+        hermesMessage: state.hermesMessage,
+        hermesAvailableModels: state.hermesAvailableModels,
       }),
     }
   )
