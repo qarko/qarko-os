@@ -28,6 +28,7 @@ interface QarkoState {
   artifacts: typeof artifacts;
   plugins: Plugin[];
   activeRun: typeof activeRun;
+  actionNotice: string;
   automationPolicies: typeof automationPolicies;
   selectProject: (projectId: string) => void;
   setView: (view: AppView) => void;
@@ -35,6 +36,7 @@ interface QarkoState {
   setAutomationMode: (mode: AutomationMode) => void;
   resolveApproval: (approvalId: string, decision: ApprovalDecision) => void;
   togglePlugin: (pluginId: string) => void;
+  runNextStep: () => void;
 }
 
 const buildProjectFromIdea = (input: NewProjectInput, index: number): Project => {
@@ -118,6 +120,7 @@ export const useQarkoStore = create<QarkoState>((set) => ({
   artifacts,
   plugins: initialPlugins,
   activeRun,
+  actionNotice: "MVP mock 모드입니다. 버튼을 누르면 화면 상태와 로그로 반응을 보여줍니다.",
   automationPolicies,
   selectProject: (projectId) => set({ selectedProjectId: projectId, view: "project" }),
   setView: (view) => set({ view }),
@@ -140,15 +143,53 @@ export const useQarkoStore = create<QarkoState>((set) => ({
       ),
     })),
   resolveApproval: (approvalId, decision) =>
-    set((state) => ({
-      approvals: state.approvals.map((approval) =>
-        approval.id === approvalId ? { ...approval, status: decision } : approval
-      ),
-    })),
+    set((state) => {
+      const approval = state.approvals.find((item) => item.id === approvalId);
+      const decisionLabel = decision === "approved" ? "승인" : decision === "revise" ? "수정 요청" : "취소";
+      return {
+        approvals: state.approvals.map((item) => (item.id === approvalId ? { ...item, status: decision } : item)),
+        actionNotice: approval
+          ? `"${approval.action}" 작업을 ${decisionLabel} 처리했습니다. 실제 외부 실행은 아직 연결되지 않은 mock 단계입니다.`
+          : "승인 요청을 처리했습니다.",
+      };
+    }),
   togglePlugin: (pluginId) =>
-    set((state) => ({
-      plugins: state.plugins.map((plugin) =>
-        plugin.id === pluginId ? { ...plugin, enabled: !plugin.enabled } : plugin
-      ),
-    })),
+    set((state) => {
+      const plugin = state.plugins.find((item) => item.id === pluginId);
+      const nextEnabled = !plugin?.enabled;
+      return {
+        plugins: state.plugins.map((item) => (item.id === pluginId ? { ...item, enabled: nextEnabled } : item)),
+        actionNotice: plugin
+          ? `${plugin.name} 플러그인을 ${nextEnabled ? "활성화" : "비활성화"}했습니다. 실제 설치/권한 연결은 다음 단계에서 붙일 예정입니다.`
+          : "플러그인 상태를 변경했습니다.",
+      };
+    }),
+  runNextStep: () =>
+    set((state) => {
+      const nextStep = state.activeRun.stepCount + 1;
+      return {
+        activeRun: {
+          ...state.activeRun,
+          stepCount: nextStep,
+          logs: [
+            ...state.activeRun.logs,
+            {
+              id: `log-${nextStep}`,
+              timestamp: "now",
+              roleName: nextStep % 2 === 0 ? "Chief of Staff" : "QA / Reviewer",
+              message:
+                nextStep % 2 === 0
+                  ? "다음 실행 후보를 정리했습니다. 위험한 외부 작업은 승인 카드로 분리됩니다."
+                  : "현재 단계는 mock 실행입니다. Hermes 실제 연결 전까지는 로그와 산출물 흐름을 검증합니다.",
+              status: nextStep % 2 === 0 ? "running" : "needs_approval",
+            },
+          ],
+          outputPreview:
+            nextStep % 2 === 0
+              ? "다음 단계 후보가 준비되었습니다. 승인 범위 안의 내부 작업은 자동 진행할 수 있습니다."
+              : "실제 Hermes 에이전트가 연결되면 이 영역에 실행 결과와 산출물 링크가 표시됩니다.",
+        },
+        actionNotice: "다음 단계 mock 실행 로그를 추가했습니다. 실제 에이전트 실행은 Hermes adapter 연결 후 활성화됩니다.",
+      };
+    }),
 }));

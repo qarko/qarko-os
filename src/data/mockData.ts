@@ -339,6 +339,7 @@ export const activeRun: Run = {
   activeRoleName: "Researcher",
   modelName: "Hermes Mock / GPT-compatible",
   status: "running",
+  stepCount: 3,
   outputPreview: "검증 메시지는 문제 인식, 빠른 제안, 승인 요청 순서로 정리하는 것이 좋습니다.",
   logs: [
     {

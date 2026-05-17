@@ -6,7 +6,7 @@ import { StatusBadge } from "../ui/StatusBadge";
 import { SectionHeader } from "../ui/SectionHeader";
 
 export function WorkspaceDashboard() {
-  const { projects, approvals, artifacts, plugins, selectProject } = useQarkoStore();
+  const { projects, approvals, artifacts, plugins, actionNotice, selectProject } = useQarkoStore();
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
   const activePlugins = plugins.filter((plugin) => plugin.enabled);
   const runningProjects = projects.filter((project) => project.status === "running").length;
@@ -25,6 +25,11 @@ export function WorkspaceDashboard() {
           <StatusBadge tone="mock" label="Hermes Mock" />
           <StatusBadge tone="running" label={`${runningProjects}개 실행 중`} />
         </div>
+      </div>
+
+      <div className="mb-6 rounded-md border border-line bg-white p-4 text-sm leading-6 text-stone-700 shadow-sm">
+        <span className="font-semibold text-ink">상태 안내: </span>
+        {actionNotice}
       </div>
 
       <section className="mb-6 grid gap-3 md:grid-cols-4">
@@ -74,9 +79,14 @@ export function WorkspaceDashboard() {
         <section>
           <SectionHeader title="승인 대기" eyebrow="Approval Queue" />
           <div className="space-y-3">
-            {pendingApprovals.map((approval) => (
-              <ApprovalCard key={approval.id} approval={approval} />
-            ))}
+            {pendingApprovals.length > 0 ? (
+              pendingApprovals.map((approval) => <ApprovalCard key={approval.id} approval={approval} />)
+            ) : (
+              <div className="rounded-md border border-dashed border-line bg-white p-5 text-sm leading-6 text-stone-600 shadow-sm">
+                <p className="font-semibold text-ink">승인 대기 작업이 없습니다.</p>
+                <p className="mt-1">새 승인 요청이 생기면 이 영역에 카드로 표시됩니다. 빈 화면이 아니라 대기 상태입니다.</p>
+              </div>
+            )}
           </div>
         </section>
         <section>

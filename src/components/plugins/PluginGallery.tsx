@@ -13,7 +13,7 @@ const tabs: Array<{ id: Plugin["category"]; label: string }> = [
 
 export function PluginGallery() {
   const [activeTab, setActiveTab] = useState<Plugin["category"]>("installed");
-  const { plugins, togglePlugin } = useQarkoStore();
+  const { plugins, actionNotice, togglePlugin } = useQarkoStore();
   const visiblePlugins = plugins.filter((plugin) => plugin.category === activeTab);
 
   return (
@@ -40,10 +40,16 @@ export function PluginGallery() {
         ))}
       </div>
 
+      <div className="mb-5 rounded-md border border-line bg-white p-4 text-sm leading-6 text-stone-700 shadow-sm">
+        <span className="font-semibold text-ink">플러그인 상태: </span>
+        {actionNotice}
+      </div>
+
       <SectionHeader title="플러그인 카드" eyebrow={tabs.find((tab) => tab.id === activeTab)?.label} />
       <div className="grid gap-4 lg:grid-cols-2">
-        {visiblePlugins.map((plugin) => (
-          <article key={plugin.id} className="rounded-md border border-line bg-white p-5 shadow-sm">
+        {visiblePlugins.length > 0 ? (
+          visiblePlugins.map((plugin) => (
+            <article key={plugin.id} className="rounded-md border border-line bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
                 <div className="rounded-md bg-panel p-2 text-signal">
@@ -90,7 +96,13 @@ export function PluginGallery() {
               {plugin.enabled ? "비활성화" : "연결 / 설정"}
             </button>
           </article>
-        ))}
+          ))
+        ) : (
+          <div className="rounded-md border border-dashed border-line bg-white p-6 text-sm leading-6 text-stone-600 shadow-sm lg:col-span-2">
+            <p className="font-semibold text-ink">이 탭에는 아직 표시할 플러그인이 없습니다.</p>
+            <p className="mt-1">커뮤니티/설치 기능이 연결되면 이 영역에 플러그인 카드가 표시됩니다.</p>
+          </div>
+        )}
       </div>
     </div>
   );

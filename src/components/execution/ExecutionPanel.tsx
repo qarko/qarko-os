@@ -3,7 +3,7 @@ import { useQarkoStore } from "../../store/useQarkoStore";
 import { StatusBadge } from "../ui/StatusBadge";
 
 export function ExecutionPanel() {
-  const { activeRun, approvals } = useQarkoStore();
+  const { activeRun, approvals, actionNotice, runNextStep } = useQarkoStore();
   const pendingApproval = approvals.find((approval) => approval.status === "pending");
 
   return (
@@ -67,16 +67,32 @@ export function ExecutionPanel() {
             <p className="text-sm font-semibold text-ink">{pendingApproval.action}</p>
             <p className="mt-1 text-xs leading-5 text-stone-700">{pendingApproval.whatWillHappen}</p>
           </div>
-        ) : null}
+        ) : (
+          <div className="mb-5 rounded-md border border-dashed border-line bg-white p-4">
+            <div className="mb-2 flex items-center gap-2 text-signal">
+              <ShieldAlert className="h-4 w-4" />
+              <h3 className="text-sm font-semibold">승인 요청 대기</h3>
+            </div>
+            <p className="text-xs leading-5 text-stone-600">
+              현재 즉시 승인할 작업은 없습니다. 위험 작업이 생기면 이 영역이 승인 카드로 바뀝니다.
+            </p>
+          </div>
+        )}
 
         <div className="rounded-md border border-line bg-white p-4 shadow-sm">
           <p className="mb-2 text-xs font-semibold uppercase tracking-normal text-moss">Output preview</p>
           <p className="text-sm leading-6 text-stone-700">{activeRun.outputPreview}</p>
         </div>
+        <div className="mt-3 rounded-md border border-line bg-panel p-3 text-xs leading-5 text-stone-600">
+          {actionNotice}
+        </div>
       </div>
 
       <div className="border-t border-line p-5">
-        <button className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white">
+        <button
+          onClick={runNextStep}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white"
+        >
           <Play className="h-4 w-4" />
           다음 단계 실행
         </button>

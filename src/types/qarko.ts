@@ -105,6 +105,7 @@ export interface Run {
   status: Status;
   logs: LogEntry[];
   outputPreview: string;
+  stepCount: number;
 }
 
 export interface Approval {
