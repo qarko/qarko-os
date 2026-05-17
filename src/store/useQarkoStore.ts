@@ -38,11 +38,83 @@ interface QarkoState {
   resolveApproval: (approvalId: string, decision: ApprovalDecision) => void;
   togglePlugin: (pluginId: string) => void;
   runNextStep: () => void;
+  resetWorkspace: () => void;
 }
+
+const makeProjectName = (idea: string) => {
+  const normalized = idea.replace(/\s+/g, " ").trim();
+  if (!normalized) return "새 사업 프로젝트";
+
+  const keywordMap: Array<[string[], string]> = [
+    [["뉴스레터", "newsletter"], "Newsletter Growth System"],
+    [["블로그", "seo", "티스토리"], "SEO Content Business"],
+    [["쇼츠", "shorts", "유튜브"], "Short-form Media Studio"],
+    [["인플루언서", "instagram", "인스타"], "Influencer Operating System"],
+    [["saas", "앱", "서비스"], "Digital Product Launch"],
+    [["대행", "agency", "마케팅"], "Service Agency System"],
+  ];
+
+  const lowerIdea = normalized.toLowerCase();
+  const matched = keywordMap.find(([keywords]) => keywords.some((keyword) => lowerIdea.includes(keyword.toLowerCase())));
+  if (matched) return matched[1];
+
+  return normalized.length > 28 ? `${normalized.slice(0, 28)}...` : normalized;
+};
+
+const makeProjectBlueprint = (idea: string) => {
+  const lowerIdea = idea.toLowerCase();
+  if (lowerIdea.includes("뉴스레터")) {
+    return {
+      goalTitle: "첫 뉴스레터 운영 루틴과 유료 전환 가설 만들기",
+      metric: "구독자 타깃, 발행 주기, 첫 3개 주제 확정",
+      workflowTitle: "Idea to Newsletter System",
+      stages: ["독자 정의", "콘텐츠 포지션", "발행 루틴", "유료 전환 검토"],
+      tasks: [
+        ["독자와 문제 정의", "누가 왜 이 뉴스레터를 기다릴지 정리", "chief", false],
+        ["첫 3개 발행 주제 조사", "시장/커뮤니티에서 반복되는 관심사를 리서치", "researcher", false],
+        ["유료 전환 메시지 승인", "외부에 공개할 구독 제안 문구를 검토", "reviewer", true],
+      ],
+      risks: ["초기 독자 타깃이 넓으면 구독 이유가 약해질 수 있음", "유료 전환은 충분한 신뢰 전까지 과하게 밀지 않아야 함"],
+      nextAction: "독자 타깃과 첫 발행 주제를 확인하세요.",
+    };
+  }
+
+  if (lowerIdea.includes("대행") || lowerIdea.includes("마케팅")) {
+    return {
+      goalTitle: "반복 판매 가능한 서비스 패키지 만들기",
+      metric: "고객군, 제안서, 첫 영업 메시지 확정",
+      workflowTitle: "Offer to Client Pipeline",
+      stages: ["고객군 선택", "패키지 설계", "영업 메시지", "승인 리뷰"],
+      tasks: [
+        ["고객군 1개로 좁히기", "가장 먼저 접근할 고객 유형을 하나로 선택", "chief", false],
+        ["서비스 패키지 초안", "문제, 결과물, 가격 가설을 한 장으로 정리", "marketer", false],
+        ["외부 영업 메시지 승인", "잠재 고객에게 보낼 문구를 검토", "reviewer", true],
+      ],
+      risks: ["서비스 범위가 넓으면 운영이 흔들릴 수 있음", "초기 영업 메시지는 과장 표현을 피해야 함"],
+      nextAction: "첫 고객군과 서비스 패키지 초안을 검토하세요.",
+    };
+  }
+
+  return {
+    goalTitle: "첫 실행 가능한 사업 운영 계획 만들기",
+    metric: "핵심 고객, 첫 작업, 승인 기준 확정",
+    workflowTitle: "Idea to Operating System",
+    stages: ["아이디어 정리", "시장 리서치", "실행 계획", "승인 기준"],
+    tasks: [
+      ["사업 목표와 고객 가설 정리", "사용자 아이디어를 문제, 고객, 제안 가치 기준으로 정리", "chief", false],
+      ["첫 리서치 범위 설정", "시장, 경쟁 대안, 참고자료 조사 기준 정리", "researcher", false],
+      ["자동화/승인 범위 점검", "AI가 자동으로 진행할 일과 승인받을 일을 분리", "reviewer", true],
+    ],
+    risks: ["초기 범위가 넓을 수 있음", "자동화 수준은 사용자가 직접 확인해야 함"],
+    nextAction: "자동화 모드를 확인하고 첫 리서치를 시작하세요.",
+  };
+};
 
 const buildProjectFromIdea = (input: NewProjectInput, index: number): Project => {
   const trimmedIdea = input.idea.trim();
-  const name = trimmedIdea.length > 34 ? `${trimmedIdea.slice(0, 34)}...` : trimmedIdea || "새 사업 프로젝트";
+  const name = makeProjectName(trimmedIdea);
+  const blueprint = makeProjectBlueprint(trimmedIdea);
+  const stageOwners = ["chief", "researcher", "marketer", "reviewer"];
 
   return {
     id: `project-custom-${Date.now()}`,
@@ -52,38 +124,29 @@ const buildProjectFromIdea = (input: NewProjectInput, index: number): Project =>
     automationMode: input.mode,
     goal: {
       id: `goal-custom-${index}`,
-      title: "첫 실행 가능한 사업 운영 계획 만들기",
-      metric: "핵심 고객, 첫 작업, 승인 기준 확정",
+      title: blueprint.goalTitle,
+      metric: blueprint.metric,
       status: "planned",
     },
     workflow: {
       id: `workflow-custom-${index}`,
-      title: "Idea to Operating System",
+      title: blueprint.workflowTitle,
       description: "아이디어를 목표, 역할, 작업, 승인 범위로 구조화",
-      stages: [
-        { id: `stage-custom-${index}-1`, title: "아이디어 정리", status: "planned", ownerRoleId: "chief" },
-        { id: `stage-custom-${index}-2`, title: "시장 리서치", status: "planned", ownerRoleId: "researcher" },
-        { id: `stage-custom-${index}-3`, title: "실행 계획", status: "planned", ownerRoleId: "marketer" },
-      ],
+      stages: blueprint.stages.map((stage, stageIndex) => ({
+        id: `stage-custom-${index}-${stageIndex + 1}`,
+        title: stage,
+        status: stageIndex === 0 ? "running" : "planned",
+        ownerRoleId: stageOwners[stageIndex] ?? "chief",
+      })),
     },
-    tasks: [
-      {
-        id: `task-custom-${index}-1`,
-        title: "사업 목표와 고객 가설 정리",
-        description: "사용자 아이디어를 문제, 고객, 제안 가치 기준으로 정리",
-        status: "planned",
-        roleId: "chief",
-        approvalRequired: false,
-      },
-      {
-        id: `task-custom-${index}-2`,
-        title: "자동화/승인 범위 점검",
-        description: "AI가 자동으로 진행할 일과 승인받을 일을 분리",
-        status: "needs_approval",
-        roleId: "reviewer",
-        approvalRequired: true,
-      },
-    ],
+    tasks: blueprint.tasks.map(([title, description, roleId, approvalRequired], taskIndex) => ({
+      id: `task-custom-${index}-${taskIndex + 1}`,
+      title: String(title),
+      description: String(description),
+      status: approvalRequired ? "needs_approval" : taskIndex === 0 ? "running" : "planned",
+      roleId: String(roleId),
+      approvalRequired: Boolean(approvalRequired),
+    })),
     roles: [
       {
         id: "chief",
@@ -107,8 +170,8 @@ const buildProjectFromIdea = (input: NewProjectInput, index: number): Project =>
         currentFocus: "승인 정책 확인 필요",
       },
     ],
-    risks: ["초기 범위가 넓을 수 있음", "자동화 수준은 사용자가 직접 확인해야 함"],
-    nextAction: "자동화 모드를 확인하고 첫 리서치를 시작하세요.",
+    risks: blueprint.risks,
+    nextAction: blueprint.nextAction,
   };
 };
 
@@ -196,6 +259,17 @@ export const useQarkoStore = create<QarkoState>()(
             },
             actionNotice: "다음 단계 mock 실행 로그를 추가하고 로컬에 저장했습니다. 실제 에이전트 실행은 Hermes adapter 연결 후 활성화됩니다.",
           };
+        }),
+      resetWorkspace: () =>
+        set({
+          projects: initialProjects,
+          selectedProjectId: initialProjects[0].id,
+          view: "workspace",
+          approvals: initialApprovals,
+          artifacts,
+          plugins: initialPlugins,
+          activeRun,
+          actionNotice: "워크스페이스를 초기 MVP 샘플 상태로 되돌렸습니다.",
         }),
     }),
     {

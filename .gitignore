@@ -5,3 +5,5 @@ dist/
 vite-dev*.log
 .env
 .env.local
+src-tauri/target/
+src-tauri/gen/

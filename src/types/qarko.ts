@@ -9,7 +9,7 @@ export type Status =
 
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type AutomationMode = "manual" | "assisted" | "automation" | "custom";
-export type AppView = "workspace" | "project" | "new-project" | "plugins";
+export type AppView = "workspace" | "project" | "new-project" | "plugins" | "settings";
 export type ApprovalDecision = "approved" | "revise" | "cancelled";
 export type RuntimeStatus = "connected" | "not_connected" | "mock";
 

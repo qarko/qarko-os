@@ -77,7 +77,12 @@ export function Sidebar() {
           <UsersRound className="h-4 w-4" />
           커뮤니티
         </button>
-        <button className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-stone-600 hover:bg-white">
+        <button
+          onClick={() => setView("settings")}
+          className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm ${
+            view === "settings" ? "bg-white font-medium text-ink shadow-sm" : "text-stone-600 hover:bg-white"
+          }`}
+        >
           <Settings className="h-4 w-4" />
           설정
         </button>
