@@ -1,4 +1,4 @@
-import { CloudDownload, CloudUpload, KeyRound, PlugZap, RotateCcw, Save, Server } from "lucide-react";
+import { CheckCircle2, CloudDownload, CloudUpload, KeyRound, PlugZap, RotateCcw, Save, Server, Terminal } from "lucide-react";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import { SectionHeader } from "../ui/SectionHeader";
 import { StatusBadge } from "../ui/StatusBadge";
@@ -8,9 +8,16 @@ export function SettingsPanel() {
     actionNotice,
     hermesAvailableModels,
     hermesConnection,
+    hermesExecutablePath,
+    hermesInstallMessage,
+    hermesInstallStatus,
     hermesMessage,
     hermesStatus,
+    checkHermesInstall,
+    installHermesDesktop,
     loadFromCloud,
+    openHermesCliTerminal,
+    openHermesSetupTerminal,
     resetWorkspace,
     saveToCloud,
     setSyncEndpoint,
@@ -22,6 +29,7 @@ export function SettingsPanel() {
   } = useQarkoStore();
   const isSyncing = syncStatus === "syncing";
   const isTestingHermes = hermesStatus === "testing";
+  const hermesInstalled = hermesInstallStatus === "installed";
 
   return (
     <div className="mx-auto max-w-5xl p-5 lg:p-8">
@@ -127,6 +135,51 @@ export function SettingsPanel() {
               감지된 모델: {hermesAvailableModels.slice(0, 5).join(", ")}
             </span>
           ) : null}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-md border border-line bg-white p-5 shadow-sm">
+        <SectionHeader title="Hermes 설치와 초기 설정" eyebrow="Desktop setup" />
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Terminal className="h-4 w-4 text-signal" />
+          <StatusBadge
+            tone={hermesInstalled ? "completed" : hermesInstallStatus === "error" ? "failed" : hermesInstallStatus === "installing" ? "running" : "planned"}
+            label={hermesInstalled ? "설치됨" : hermesInstallStatus === "installing" ? "설치 중" : hermesInstallStatus === "error" ? "오류" : "확인 필요"}
+          />
+        </div>
+        <p className="text-sm leading-6 text-stone-600">{hermesInstallMessage}</p>
+        {hermesExecutablePath ? <p className="mt-2 break-all text-xs text-stone-500">{hermesExecutablePath}</p> : null}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            onClick={checkHermesInstall}
+            className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            설치 상태 확인
+          </button>
+          <button
+            onClick={installHermesDesktop}
+            className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss"
+          >
+            <PlugZap className="h-4 w-4" />
+            Hermes 자동 설치
+          </button>
+          <button
+            onClick={openHermesSetupTerminal}
+            disabled={!hermesInstalled}
+            className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Terminal className="h-4 w-4" />
+            초기 설정 열기
+          </button>
+          <button
+            onClick={openHermesCliTerminal}
+            disabled={!hermesInstalled}
+            className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Terminal className="h-4 w-4" />
+            Hermes 실행
+          </button>
         </div>
       </section>
 

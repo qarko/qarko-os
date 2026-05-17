@@ -1,5 +1,11 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import {
+  getHermesDesktopStatus,
+  openHermesCli,
+  openHermesSetup,
+  startHermesInstall,
+} from "../adapters/hermesDesktop";
 import { testHermesConnection } from "../adapters/hermesRuntime";
 import { getDefaultSyncEndpoint, loadWorkspaceSnapshot, saveWorkspaceSnapshot } from "../adapters/workspaceSync";
 import {
@@ -19,6 +25,7 @@ import type {
   Artifact,
   AutomationMode,
   HermesConnection,
+  HermesInstallStatus,
   HermesStatus,
   NewProjectInput,
   Plugin,
@@ -45,6 +52,10 @@ interface QarkoState {
   hermesStatus: HermesStatus;
   hermesMessage: string;
   hermesAvailableModels: string[];
+  hermesInstallStatus: HermesInstallStatus;
+  hermesExecutablePath?: string;
+  hermesInstallMessage: string;
+  showHermesOnboarding: boolean;
   selectProject: (projectId: string) => void;
   setView: (view: AppView) => void;
   createProject: (input: NewProjectInput) => void;
@@ -58,6 +69,11 @@ interface QarkoState {
   loadFromCloud: () => Promise<void>;
   updateHermesConnection: (connection: Partial<HermesConnection>) => void;
   testHermesRuntime: () => Promise<void>;
+  checkHermesInstall: () => Promise<void>;
+  installHermesDesktop: () => Promise<void>;
+  openHermesSetupTerminal: () => Promise<void>;
+  openHermesCliTerminal: () => Promise<void>;
+  dismissHermesOnboarding: () => void;
 }
 
 const makeProjectName = (idea: string) => {
@@ -241,6 +257,9 @@ export const useQarkoStore = create<QarkoState>()(
       hermesStatus: "not_configured",
       hermesMessage: "Hermes API 주소와 모델을 확인하면 실제 런타임 상태로 전환됩니다.",
       hermesAvailableModels: [],
+      hermesInstallStatus: "unknown",
+      hermesInstallMessage: "Hermes 설치 상태를 확인하지 않았습니다.",
+      showHermesOnboarding: true,
       selectProject: (projectId) => set({ selectedProjectId: projectId, view: "project" }),
       setView: (view) => set({ view }),
       createProject: (input) =>
@@ -369,6 +388,77 @@ export const useQarkoStore = create<QarkoState>()(
           actionNotice: "Hermes 연결에 실패했습니다. API 주소, 키, 모델명을 확인하세요.",
         });
       },
+      checkHermesInstall: async () => {
+        set({
+          hermesInstallStatus: "unknown",
+          hermesInstallMessage: "Hermes 설치 상태를 확인하는 중입니다.",
+        });
+        try {
+          const status = await getHermesDesktopStatus();
+          set({
+            hermesInstallStatus: status.installed ? "installed" : "missing",
+            hermesExecutablePath: status.executablePath,
+            hermesInstallMessage: status.version ? `${status.message} ${status.version}` : status.message,
+            showHermesOnboarding: !status.installed,
+          });
+        } catch (error) {
+          set({
+            hermesInstallStatus: "error",
+            hermesInstallMessage: error instanceof Error ? error.message : "Hermes 설치 상태 확인에 실패했습니다.",
+          });
+        }
+      },
+      installHermesDesktop: async () => {
+        set({
+          hermesInstallStatus: "installing",
+          hermesInstallMessage: "Hermes 설치 터미널을 여는 중입니다.",
+          actionNotice: "Hermes 공식 Windows installer를 실행합니다.",
+        });
+        try {
+          const message = await startHermesInstall();
+          set({
+            hermesInstallStatus: "installing",
+            hermesInstallMessage: `${message} 설치가 끝나면 상태 확인을 눌러주세요.`,
+            actionNotice: "Hermes 설치 터미널을 열었습니다. 설치 완료 후 초기 설정을 진행하세요.",
+          });
+        } catch (error) {
+          set({
+            hermesInstallStatus: "error",
+            hermesInstallMessage: error instanceof Error ? error.message : "Hermes 설치를 시작하지 못했습니다.",
+            actionNotice: "Hermes 설치를 시작하지 못했습니다.",
+          });
+        }
+      },
+      openHermesSetupTerminal: async () => {
+        try {
+          const message = await openHermesSetup();
+          set({
+            showHermesOnboarding: false,
+            hermesInstallMessage: message,
+            actionNotice: "Hermes setup 터미널에서 모델과 도구를 선택하세요.",
+          });
+        } catch (error) {
+          set({
+            hermesInstallStatus: "error",
+            hermesInstallMessage: error instanceof Error ? error.message : "Hermes setup을 열지 못했습니다.",
+          });
+        }
+      },
+      openHermesCliTerminal: async () => {
+        try {
+          const message = await openHermesCli();
+          set({
+            hermesInstallMessage: message,
+            actionNotice: "Hermes CLI 터미널을 열었습니다.",
+          });
+        } catch (error) {
+          set({
+            hermesInstallStatus: "error",
+            hermesInstallMessage: error instanceof Error ? error.message : "Hermes CLI를 열지 못했습니다.",
+          });
+        }
+      },
+      dismissHermesOnboarding: () => set({ showHermesOnboarding: false }),
       setSyncEndpoint: (endpoint) =>
         set({
           syncEndpoint: endpoint,
@@ -437,6 +527,10 @@ export const useQarkoStore = create<QarkoState>()(
         hermesStatus: state.hermesStatus,
         hermesMessage: state.hermesMessage,
         hermesAvailableModels: state.hermesAvailableModels,
+        hermesInstallStatus: state.hermesInstallStatus,
+        hermesExecutablePath: state.hermesExecutablePath,
+        hermesInstallMessage: state.hermesInstallMessage,
+        showHermesOnboarding: state.showHermesOnboarding,
       }),
     }
   )

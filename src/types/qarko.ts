@@ -14,6 +14,7 @@ export type ApprovalDecision = "approved" | "revise" | "cancelled";
 export type RuntimeStatus = "connected" | "not_connected" | "mock";
 export type SyncStatus = "idle" | "syncing" | "synced" | "error";
 export type HermesStatus = "not_configured" | "testing" | "connected" | "error";
+export type HermesInstallStatus = "unknown" | "installed" | "missing" | "installing" | "error";
 
 export interface Workspace {
   id: string;

@@ -22,6 +22,26 @@ npm.cmd run desktop:build
 src-tauri\target\release\qarko-os.exe
 ```
 
+## Windows 설치 파일 빌드
+
+```powershell
+npm.cmd run desktop:installer
+```
+
+빌드가 성공하면 NSIS 설치 파일이 아래 위치에 생성됩니다.
+
+```text
+src-tauri\target\release\bundle\nsis\QARKO OS_0.1.0_x64-setup.exe
+```
+
+설치 프로그램은 설치 후 Hermes Agent Windows installer를 백그라운드로 실행합니다.
+
+```powershell
+https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1
+```
+
+설치 단계에서는 Hermes setup wizard를 건너뛰고, QARKO OS 첫 실행 화면에서 `Hermes 초기 설정`을 누르면 별도 터미널에서 `hermes setup`이 열립니다. 이 터미널 UI에서 모델, 프로바이더, 도구 선택을 Hermes 원래 방식 그대로 진행합니다.
+
 ## Railway 웹/API 배포
 
 Railway에는 같은 React 앱과 API 서버를 함께 배포합니다.
@@ -64,7 +84,12 @@ https://YOUR-RAILWAY-APP.up.railway.app/api
 
 ## Hermes 연결
 
-앱의 `설정 > Hermes 런타임 설정`에서 아래 값을 입력한 뒤 `연결 테스트`를 누르세요.
+앱 첫 실행 화면이나 `설정 > Hermes 설치와 초기 설정`에서 Hermes 설치 상태를 확인할 수 있습니다.
+
+1. Hermes가 없으면 `Hermes 설치`를 누릅니다.
+2. 설치가 끝나면 `상태 확인`을 누릅니다.
+3. `초기 설정`을 눌러 터미널에서 `hermes setup`을 진행합니다.
+4. 이후 `설정 > Hermes 런타임 설정`에서 아래 값을 입력한 뒤 `연결 테스트`를 누르세요.
 
 ```text
 API 주소: http://localhost:11434/v1
