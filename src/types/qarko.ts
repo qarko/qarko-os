@@ -12,6 +12,7 @@ export type AutomationMode = "manual" | "assisted" | "automation" | "custom";
 export type AppView = "workspace" | "project" | "new-project" | "plugins" | "settings";
 export type ApprovalDecision = "approved" | "revise" | "cancelled";
 export type RuntimeStatus = "connected" | "not_connected" | "mock";
+export type SyncStatus = "idle" | "syncing" | "synced" | "error";
 
 export interface Workspace {
   id: string;
@@ -142,4 +143,17 @@ export interface NewProjectInput {
   idea: string;
   mode: AutomationMode;
   customRules?: ApprovalRule[];
+}
+
+export interface WorkspaceSnapshot {
+  workspace: Workspace;
+  projects: Project[];
+  selectedProjectId: string;
+  view: AppView;
+  approvals: Approval[];
+  artifacts: Artifact[];
+  plugins: Plugin[];
+  activeRun: Run;
+  actionNotice: string;
+  updatedAt?: string;
 }

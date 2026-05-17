@@ -1,0 +1,142 @@
+const now = () => new Date().toISOString();
+
+export const createSeedWorkspaceSnapshot = () => ({
+  workspace: {
+    id: 'qarko-hq',
+    name: 'QARKO OS',
+    tagline: '1인 AI 회사를 운영하는 실시간 대시보드',
+  },
+  projects: [
+    {
+      id: 'project-ai-launchpad',
+      name: 'AI Business Launchpad',
+      idea: '새로운 사업 아이디어를 7일 안에 검증 가능한 프로젝트로 바꾸기',
+      status: 'running',
+      automationMode: 'assisted',
+      goal: {
+        id: 'goal-launchpad',
+        title: '7일 안에 검증 가능한 사업 가설 만들기',
+        metric: '고객, 제안, 리스크, 승인 기준 확정',
+        status: 'running',
+      },
+      workflow: {
+        id: 'workflow-launchpad',
+        title: 'Idea to Validation Sprint',
+        description: '아이디어를 검증 가능한 실행 계획으로 정리합니다.',
+        stages: [
+          { id: 'stage-1', title: '아이디어 정리', status: 'running', ownerRoleId: 'chief' },
+          { id: 'stage-2', title: '시장 리서치', status: 'planned', ownerRoleId: 'researcher' },
+          { id: 'stage-3', title: '메시지 테스트', status: 'planned', ownerRoleId: 'marketer' },
+          { id: 'stage-4', title: '승인 리뷰', status: 'planned', ownerRoleId: 'reviewer' },
+        ],
+      },
+      tasks: [
+        {
+          id: 'task-1',
+          title: '고객 문제 정의',
+          description: '누가 어떤 문제를 반복해서 겪는지 한 문장으로 정리',
+          status: 'running',
+          roleId: 'chief',
+          approvalRequired: false,
+        },
+        {
+          id: 'task-2',
+          title: '경쟁 대안 조사',
+          description: '사용자가 지금 쓰는 대안을 조사',
+          status: 'planned',
+          roleId: 'researcher',
+          approvalRequired: false,
+        },
+        {
+          id: 'task-3',
+          title: '외부 공개 메시지 승인',
+          description: '잠재 고객에게 보낼 문구를 승인 후 실행',
+          status: 'needs_approval',
+          roleId: 'reviewer',
+          approvalRequired: true,
+        },
+      ],
+      roles: [
+        {
+          id: 'chief',
+          name: 'Chief of Staff',
+          mission: '모호한 사업 목표를 실행 가능한 순서로 정리',
+          status: 'running',
+          currentFocus: '7일 검증 계획 정리',
+        },
+        {
+          id: 'researcher',
+          name: 'Researcher',
+          mission: '시장, 고객, 경쟁 대안을 조사',
+          status: 'planned',
+          currentFocus: '리서치 범위 대기',
+        },
+        {
+          id: 'reviewer',
+          name: 'QA / Reviewer',
+          mission: '승인 기준, 리스크, 품질을 점검',
+          status: 'needs_approval',
+          currentFocus: '외부 실행 승인 대기',
+        },
+      ],
+      risks: ['초기 타깃이 넓으면 메시지가 흐려질 수 있음', '외부 공개 작업은 사용자 승인 후 실행해야 함'],
+      nextAction: '자동화 범위와 첫 리서치 작업을 확인하세요.',
+    },
+  ],
+  selectedProjectId: 'project-ai-launchpad',
+  view: 'workspace',
+  approvals: [
+    {
+      id: 'approval-message-1',
+      projectId: 'project-ai-launchpad',
+      action: '검증 메시지 초안 발송',
+      whatWillHappen: '잠재 고객에게 보낼 짧은 검증 메시지를 확정합니다.',
+      expectedResult: '빠른 피드백을 받을 수 있는 안전한 문구 확보',
+      risk: 'medium',
+      status: 'pending',
+    },
+  ],
+  artifacts: [
+    {
+      id: 'artifact-plan-1',
+      projectId: 'project-ai-launchpad',
+      title: '7일 검증 운영 계획',
+      type: 'plan',
+      summary: '아이디어 정리, 리서치, 메시지 테스트, 승인 단계가 포함된 실행 계획',
+      createdAt: now(),
+    },
+  ],
+  plugins: [
+    {
+      id: 'plugin-hermes-agent-pack',
+      name: 'Hermes Agent Pack',
+      category: 'installed',
+      capability: 'Hermes 에이전트와 모델 선택을 QARKO OS 작업에 연결',
+      permissions: ['모델 실행', '에이전트 상태 읽기'],
+      workflows: ['AI 역할 실행', '모델 전환'],
+      risk: 'medium',
+      enabled: true,
+    },
+  ],
+  activeRun: {
+    id: 'run-market-validation',
+    projectId: 'project-ai-launchpad',
+    title: '시장 검증 준비 실행',
+    activeRoleName: 'Researcher',
+    modelName: 'Hermes Mock / GPT-compatible',
+    status: 'running',
+    logs: [
+      {
+        id: 'log-1',
+        timestamp: 'now',
+        roleName: 'Chief of Staff',
+        message: '사업 목표를 7일 검증 단위로 압축했습니다.',
+        status: 'completed',
+      },
+    ],
+    outputPreview: '검증 메시지는 문제 인식, 빠른 제안, 승인 요청 순서로 정리하는 것이 좋습니다.',
+    stepCount: 1,
+  },
+  actionNotice: 'Railway 동기화를 사용할 수 있는 기본 워크스페이스입니다.',
+  updatedAt: now(),
+});

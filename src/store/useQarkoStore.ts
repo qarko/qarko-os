@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { getDefaultSyncEndpoint, loadWorkspaceSnapshot, saveWorkspaceSnapshot } from "../adapters/workspaceSync";
 import {
   activeRun,
   approvals as initialApprovals,
@@ -14,10 +15,13 @@ import type {
   AppView,
   Approval,
   ApprovalDecision,
+  Artifact,
   AutomationMode,
   NewProjectInput,
   Plugin,
   Project,
+  SyncStatus,
+  WorkspaceSnapshot,
 } from "../types/qarko";
 
 interface QarkoState {
@@ -26,11 +30,14 @@ interface QarkoState {
   selectedProjectId: string;
   view: AppView;
   approvals: Approval[];
-  artifacts: typeof artifacts;
+  artifacts: Artifact[];
   plugins: Plugin[];
   activeRun: typeof activeRun;
   actionNotice: string;
   automationPolicies: typeof automationPolicies;
+  syncEndpoint: string;
+  syncStatus: SyncStatus;
+  syncError?: string;
   selectProject: (projectId: string) => void;
   setView: (view: AppView) => void;
   createProject: (input: NewProjectInput) => void;
@@ -39,6 +46,9 @@ interface QarkoState {
   togglePlugin: (pluginId: string) => void;
   runNextStep: () => void;
   resetWorkspace: () => void;
+  setSyncEndpoint: (endpoint: string) => void;
+  saveToCloud: () => Promise<void>;
+  loadFromCloud: () => Promise<void>;
 }
 
 const makeProjectName = (idea: string) => {
@@ -175,9 +185,33 @@ const buildProjectFromIdea = (input: NewProjectInput, index: number): Project =>
   };
 };
 
+const makeWorkspaceSnapshot = (state: QarkoState): WorkspaceSnapshot => ({
+  workspace: state.workspace,
+  projects: state.projects,
+  selectedProjectId: state.selectedProjectId,
+  view: state.view,
+  approvals: state.approvals,
+  artifacts: state.artifacts,
+  plugins: state.plugins,
+  activeRun: state.activeRun,
+  actionNotice: state.actionNotice,
+});
+
+const applyWorkspaceSnapshot = (snapshot: WorkspaceSnapshot) => ({
+  workspace: snapshot.workspace,
+  projects: snapshot.projects,
+  selectedProjectId: snapshot.selectedProjectId,
+  view: snapshot.view,
+  approvals: snapshot.approvals,
+  artifacts: snapshot.artifacts,
+  plugins: snapshot.plugins,
+  activeRun: snapshot.activeRun,
+  actionNotice: snapshot.actionNotice,
+});
+
 export const useQarkoStore = create<QarkoState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       workspace,
       projects: initialProjects,
       selectedProjectId: initialProjects[0].id,
@@ -188,6 +222,8 @@ export const useQarkoStore = create<QarkoState>()(
       activeRun,
       actionNotice: "로컬 저장이 켜져 있습니다. 프로젝트, 승인, 플러그인 상태가 이 브라우저에 저장됩니다.",
       automationPolicies,
+      syncEndpoint: getDefaultSyncEndpoint(),
+      syncStatus: "idle",
       selectProject: (projectId) => set({ selectedProjectId: projectId, view: "project" }),
       setView: (view) => set({ view }),
       createProject: (input) =>
@@ -271,6 +307,53 @@ export const useQarkoStore = create<QarkoState>()(
           activeRun,
           actionNotice: "워크스페이스를 초기 MVP 샘플 상태로 되돌렸습니다.",
         }),
+      setSyncEndpoint: (endpoint) =>
+        set({
+          syncEndpoint: endpoint,
+          syncStatus: "idle",
+          syncError: undefined,
+          actionNotice: endpoint.trim()
+            ? "클라우드 동기화 주소를 저장했습니다."
+            : "클라우드 동기화 주소를 비웠습니다. 기본 /api 주소를 사용합니다.",
+        }),
+      saveToCloud: async () => {
+        const state = get();
+        set({ syncStatus: "syncing", syncError: undefined, actionNotice: "Railway/API 서버에 워크스페이스를 저장하는 중입니다." });
+        try {
+          const saved = await saveWorkspaceSnapshot(state.syncEndpoint, makeWorkspaceSnapshot(state));
+          set({
+            ...applyWorkspaceSnapshot(saved),
+            syncStatus: "synced",
+            syncError: undefined,
+            actionNotice: `클라우드 저장 완료: ${saved.updatedAt ?? "방금"}`,
+          });
+        } catch (error) {
+          set({
+            syncStatus: "error",
+            syncError: error instanceof Error ? error.message : "클라우드 저장에 실패했습니다.",
+            actionNotice: "클라우드 저장에 실패했습니다. API 주소와 서버 상태를 확인하세요.",
+          });
+        }
+      },
+      loadFromCloud: async () => {
+        const endpoint = get().syncEndpoint;
+        set({ syncStatus: "syncing", syncError: undefined, actionNotice: "Railway/API 서버에서 워크스페이스를 불러오는 중입니다." });
+        try {
+          const snapshot = await loadWorkspaceSnapshot(endpoint);
+          set({
+            ...applyWorkspaceSnapshot(snapshot),
+            syncStatus: "synced",
+            syncError: undefined,
+            actionNotice: `클라우드 불러오기 완료: ${snapshot.updatedAt ?? "방금"}`,
+          });
+        } catch (error) {
+          set({
+            syncStatus: "error",
+            syncError: error instanceof Error ? error.message : "클라우드 불러오기에 실패했습니다.",
+            actionNotice: "클라우드 불러오기에 실패했습니다. API 주소와 서버 상태를 확인하세요.",
+          });
+        }
+      },
     }),
     {
       name: "qarko-os-workspace-v1",
@@ -284,6 +367,7 @@ export const useQarkoStore = create<QarkoState>()(
         plugins: state.plugins,
         activeRun: state.activeRun,
         actionNotice: state.actionNotice,
+        syncEndpoint: state.syncEndpoint,
       }),
     }
   )

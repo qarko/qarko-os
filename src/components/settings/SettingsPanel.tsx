@@ -1,10 +1,20 @@
-import { RotateCcw, Save, Server } from "lucide-react";
+import { CloudDownload, CloudUpload, RotateCcw, Save, Server } from "lucide-react";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import { SectionHeader } from "../ui/SectionHeader";
 import { StatusBadge } from "../ui/StatusBadge";
 
 export function SettingsPanel() {
-  const { actionNotice, resetWorkspace } = useQarkoStore();
+  const {
+    actionNotice,
+    loadFromCloud,
+    resetWorkspace,
+    saveToCloud,
+    setSyncEndpoint,
+    syncEndpoint,
+    syncError,
+    syncStatus,
+  } = useQarkoStore();
+  const isSyncing = syncStatus === "syncing";
 
   return (
     <div className="mx-auto max-w-5xl p-5 lg:p-8">
@@ -39,6 +49,49 @@ export function SettingsPanel() {
           </p>
         </section>
       </div>
+
+      <section className="mt-5 rounded-md border border-line bg-white p-5 shadow-sm">
+        <SectionHeader title="Railway 클라우드 동기화" eyebrow="Cloud sync" />
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Server className="h-4 w-4 text-signal" />
+          <StatusBadge
+            tone={syncStatus === "error" ? "failed" : syncStatus === "synced" ? "completed" : "running"}
+            label={syncStatus === "syncing" ? "동기화 중" : syncStatus === "synced" ? "연결됨" : syncStatus === "error" ? "오류" : "대기"}
+          />
+        </div>
+        <label className="block text-sm font-semibold text-ink" htmlFor="sync-endpoint">
+          API 주소
+        </label>
+        <input
+          id="sync-endpoint"
+          value={syncEndpoint}
+          onChange={(event) => setSyncEndpoint(event.target.value)}
+          placeholder="/api 또는 https://qarko-os.up.railway.app/api"
+          className="mt-2 w-full rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
+        />
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            onClick={saveToCloud}
+            disabled={isSyncing}
+            className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <CloudUpload className="h-4 w-4" />
+            현재 상태 저장
+          </button>
+          <button
+            onClick={loadFromCloud}
+            disabled={isSyncing}
+            className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <CloudDownload className="h-4 w-4" />
+            서버에서 불러오기
+          </button>
+        </div>
+        {syncError ? <p className="mt-3 text-sm leading-6 text-red-700">{syncError}</p> : null}
+        <p className="mt-3 text-sm leading-6 text-stone-600">
+          Railway 배포 후 생성된 주소 뒤에 <span className="font-semibold text-ink">/api</span>를 붙이면 웹앱과 Windows 앱이 같은 워크스페이스를 공유할 수 있습니다.
+        </p>
+      </section>
 
       <section className="mt-5 rounded-md border border-line bg-white p-5 shadow-sm">
         <SectionHeader title="워크스페이스 초기화" eyebrow="Reset" />
