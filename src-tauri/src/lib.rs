@@ -1,14 +1,37 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct HermesStatus {
     installed: bool,
     executable_path: Option<String>,
     version: Option<String>,
     message: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HermesSetupRequest {
+    provider: String,
+    model_name: String,
+    api_key: String,
+    endpoint: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommandResult {
+    ok: bool,
+    message: String,
+    output: String,
 }
 
 fn hermes_candidate_paths() -> Vec<PathBuf> {
@@ -33,6 +56,30 @@ fn powershell_install_script() -> String {
      Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1' -OutFile $installer; \
      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -SkipSetup -NonInteractive"
         .to_string()
+}
+
+fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let output = command.output().map_err(|error| error.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let combined = [stdout.as_str(), stderr.as_str()]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(CommandResult {
+        ok: output.status.success(),
+        message: if output.status.success() {
+            "명령이 완료되었습니다.".to_string()
+        } else {
+            "명령 실행 중 오류가 발생했습니다.".to_string()
+        },
+        output: combined,
+    })
 }
 
 #[tauri::command]
@@ -67,36 +114,84 @@ fn hermes_status() -> HermesStatus {
 
 #[tauri::command]
 fn install_hermes() -> Result<String, String> {
-    Command::new("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &powershell_install_script()])
-        .spawn()
-        .map_err(|error| error.to_string())?;
+    let result = run_hidden_command(
+        Command::new("powershell.exe")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &powershell_install_script()])
+    )?;
 
-    Ok("Hermes 설치 터미널을 열었습니다.".to_string())
+    if result.ok {
+        Ok("Hermes 설치가 완료되었습니다. 이제 모델 설정을 진행하세요.".to_string())
+    } else {
+        Err(if result.output.is_empty() {
+            result.message
+        } else {
+            result.output
+        })
+    }
+}
+
+fn api_key_name_for_provider(provider: &str) -> Option<&'static str> {
+    match provider {
+        "openrouter" => Some("OPENROUTER_API_KEY"),
+        "openai" => Some("OPENAI_API_KEY"),
+        "anthropic" => Some("ANTHROPIC_API_KEY"),
+        "nous" => Some("NOUS_API_KEY"),
+        "custom" => Some("OPENAI_API_KEY"),
+        _ => None,
+    }
 }
 
 #[tauri::command]
-fn open_hermes_setup() -> Result<String, String> {
+fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String> {
     let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent가 아직 설치되지 않았습니다.".to_string())?;
-    let command = format!("\"{}\" setup", hermes.to_string_lossy());
-    Command::new("cmd.exe")
-        .args(["/K", &command])
-        .spawn()
-        .map_err(|error| error.to_string())?;
+    let model = request.model_name.trim();
+    if model.is_empty() {
+        return Err("모델명을 입력하세요.".to_string());
+    }
 
-    Ok("Hermes setup 터미널을 열었습니다.".to_string())
-}
+    let mut outputs = Vec::new();
+    let model_result = run_hidden_command(Command::new(&hermes).args(["config", "set", "model", model]))?;
+    outputs.push(model_result.output);
+    if !model_result.ok {
+        return Ok(CommandResult {
+            ok: false,
+            message: "Hermes 모델 설정에 실패했습니다.".to_string(),
+            output: outputs.join("\n"),
+        });
+    }
 
-#[tauri::command]
-fn open_hermes_cli() -> Result<String, String> {
-    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent가 아직 설치되지 않았습니다.".to_string())?;
-    let command = format!("\"{}\"", hermes.to_string_lossy());
-    Command::new("cmd.exe")
-        .args(["/K", &command])
-        .spawn()
-        .map_err(|error| error.to_string())?;
+    if let Some(key_name) = api_key_name_for_provider(request.provider.trim()) {
+        let api_key = request.api_key.trim();
+        if !api_key.is_empty() {
+            let key_result = run_hidden_command(Command::new(&hermes).args(["config", "set", key_name, api_key]))?;
+            outputs.push(key_result.output);
+            if !key_result.ok {
+                return Ok(CommandResult {
+                    ok: false,
+                    message: "Hermes API Key 저장에 실패했습니다.".to_string(),
+                    output: outputs.join("\n"),
+                });
+            }
+        }
+    }
 
-    Ok("Hermes CLI 터미널을 열었습니다.".to_string())
+    if request.provider.trim() == "custom" {
+        let endpoint = request.endpoint.trim();
+        if !endpoint.is_empty() {
+            let endpoint_result = run_hidden_command(Command::new(&hermes).args(["config", "set", "providers.custom.base_url", endpoint]))?;
+            outputs.push(endpoint_result.output);
+        }
+    }
+
+    Ok(CommandResult {
+        ok: true,
+        message: "Hermes 기본 설정을 저장했습니다.".to_string(),
+        output: outputs
+            .into_iter()
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -105,8 +200,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             hermes_status,
             install_hermes,
-            open_hermes_setup,
-            open_hermes_cli
+            configure_hermes
         ])
         .run(tauri::generate_context!())
         .expect("error while running QARKO OS");

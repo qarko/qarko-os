@@ -15,6 +15,19 @@ export interface HermesInstallCommand {
   script: string;
 }
 
+export interface HermesGuidedSetup {
+  provider: string;
+  modelName: string;
+  apiKey: string;
+  endpoint: string;
+}
+
+export interface HermesCommandResult {
+  ok: boolean;
+  message: string;
+  output: string;
+}
+
 export const getHermesInstallCommand = (): HermesInstallCommand => {
   const script =
     "$ErrorActionPreference='Stop'; " +
@@ -48,16 +61,9 @@ export const startHermesInstall = async () => {
   return invoke<string>("install_hermes");
 };
 
-export const openHermesSetup = async () => {
+export const configureHermesGuidedSetup = async (setup: HermesGuidedSetup): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes setup은 Windows 데스크톱 앱에서만 열 수 있습니다.");
+    throw new Error("Hermes 설정 저장은 Windows 데스크톱 앱에서만 사용할 수 있습니다.");
   }
-  return invoke<string>("open_hermes_setup");
-};
-
-export const openHermesCli = async () => {
-  if (!hasTauriRuntime()) {
-    throw new Error("Hermes CLI는 Windows 데스크톱 앱에서만 열 수 있습니다.");
-  }
-  return invoke<string>("open_hermes_cli");
+  return invoke<HermesCommandResult>("configure_hermes", { request: setup });
 };
