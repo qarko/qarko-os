@@ -1,10 +1,18 @@
-import type { WorkspaceSnapshot } from "../types/qarko";
+import type { FeedbackEntry, WorkspaceSnapshot } from "../types/qarko";
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
+const productionApiEndpoint = "https://qarko-os-production.up.railway.app/api";
 
 export const getDefaultSyncEndpoint = () => {
   const envEndpoint = import.meta.env.VITE_QARKO_API_URL;
-  return typeof envEndpoint === "string" && envEndpoint.trim() ? envEndpoint.trim() : "/api";
+  if (typeof envEndpoint === "string" && envEndpoint.trim()) return envEndpoint.trim();
+
+  if (typeof window === "undefined") return "/api";
+
+  const host = window.location.host;
+  const isWebServer =
+    host.startsWith("127.0.0.1") || host.startsWith("localhost") || host.endsWith(".railway.app");
+  return isWebServer ? "/api" : productionApiEndpoint;
 };
 
 const makeApiUrl = (endpoint: string, path: string) => {
@@ -42,4 +50,29 @@ export const saveWorkspaceSnapshot = async (
     body: JSON.stringify(snapshot),
   });
   return readJsonResponse<WorkspaceSnapshot>(response);
+};
+
+export const loadFeedbackEntries = async (endpoint: string): Promise<FeedbackEntry[]> => {
+  const response = await fetch(makeApiUrl(endpoint, "/feedback"), {
+    method: "GET",
+    headers: { accept: "application/json" },
+  });
+  const body = await readJsonResponse<{ feedback: FeedbackEntry[] }>(response);
+  return body.feedback;
+};
+
+export const sendFeedbackEntries = async (
+  endpoint: string,
+  feedback: FeedbackEntry[]
+): Promise<FeedbackEntry[]> => {
+  const response = await fetch(makeApiUrl(endpoint, "/feedback"), {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ feedback }),
+  });
+  const body = await readJsonResponse<{ feedback: FeedbackEntry[] }>(response);
+  return body.feedback;
 };

@@ -5,6 +5,11 @@ import { createSeedWorkspaceSnapshot } from './seedWorkspace.mjs';
 
 const requiredCollections = ['projects', 'approvals', 'artifacts', 'plugins'];
 
+const normalizeSnapshot = (snapshot) => ({
+  ...snapshot,
+  feedback: Array.isArray(snapshot.feedback) ? snapshot.feedback : [],
+});
+
 const validateSnapshot = (snapshot) => {
   if (!snapshot || typeof snapshot !== 'object') {
     throw new Error('Invalid workspace snapshot: expected object');
@@ -19,6 +24,20 @@ const validateSnapshot = (snapshot) => {
       throw new Error(`Invalid workspace snapshot: ${key} must be an array`);
     }
   }
+
+  if (snapshot.feedback !== undefined && !Array.isArray(snapshot.feedback)) {
+    throw new Error('Invalid workspace snapshot: feedback must be an array');
+  }
+};
+
+const mergeFeedback = (current, incoming) => {
+  const entries = Array.isArray(incoming) ? incoming : [];
+  const seen = new Set();
+  return [...entries, ...current].filter((item) => {
+    if (!item || typeof item.id !== 'string' || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
 };
 
 export const createWorkspaceStore = ({ filePath } = {}) => {
@@ -29,7 +48,7 @@ export const createWorkspaceStore = ({ filePath } = {}) => {
       const raw = await readFile(resolvedPath, 'utf8');
       const snapshot = JSON.parse(raw);
       validateSnapshot(snapshot);
-      return snapshot;
+      return normalizeSnapshot(snapshot);
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
       return createSeedWorkspaceSnapshot();
@@ -38,12 +57,13 @@ export const createWorkspaceStore = ({ filePath } = {}) => {
 
   const save = async (snapshot) => {
     validateSnapshot(snapshot);
+    const normalizedSnapshot = normalizeSnapshot(snapshot);
     const savedAt = new Date();
-    if (snapshot.updatedAt && savedAt.toISOString() === snapshot.updatedAt) {
+    if (normalizedSnapshot.updatedAt && savedAt.toISOString() === normalizedSnapshot.updatedAt) {
       savedAt.setMilliseconds(savedAt.getMilliseconds() + 1);
     }
     const nextSnapshot = {
-      ...snapshot,
+      ...normalizedSnapshot,
       updatedAt: savedAt.toISOString(),
     };
     await mkdir(dirname(resolvedPath), { recursive: true });
@@ -51,9 +71,24 @@ export const createWorkspaceStore = ({ filePath } = {}) => {
     return nextSnapshot;
   };
 
+  const loadFeedback = async () => {
+    const snapshot = await load();
+    return snapshot.feedback;
+  };
+
+  const appendFeedback = async (feedback) => {
+    const snapshot = await load();
+    return (await save({
+      ...snapshot,
+      feedback: mergeFeedback(snapshot.feedback, feedback),
+    })).feedback;
+  };
+
   return {
     filePath: resolvedPath,
     load,
     save,
+    loadFeedback,
+    appendFeedback,
   };
 };

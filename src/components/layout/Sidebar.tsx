@@ -11,7 +11,7 @@ const navItems: Array<{ view: AppView; label: string; icon: React.ComponentType<
 ];
 
 export function Sidebar() {
-  const { workspace, projects, selectedProjectId, view, setView, selectProject } = useQarkoStore();
+  const { workspace, projects, selectedProjectId, view, setView, selectProject, feedback } = useQarkoStore();
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-line bg-[#f5f7f2]">
@@ -41,7 +41,12 @@ export function Sidebar() {
               }`}
             >
               <Icon className="h-4 w-4" />
-              {item.label}
+              <span className="min-w-0 flex-1 text-left">{item.label}</span>
+              {item.view === "feedback" && feedback.length > 0 ? (
+                <span className="rounded-full bg-signal/10 px-2 py-0.5 text-xs font-semibold text-signal">
+                  {feedback.length}
+                </span>
+              ) : null}
             </button>
           );
         })}

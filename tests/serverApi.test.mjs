@@ -80,3 +80,29 @@ test('PUT /api/workspace rejects invalid JSON snapshots', async () => {
     assert.match(body.error, /Invalid workspace snapshot/);
   });
 });
+
+test('GET and POST /api/feedback collect tester feedback', async () => {
+  await withTestServer(async (baseUrl) => {
+    const entry = {
+      id: 'feedback-api-1',
+      area: 'install',
+      ease: 'blocked',
+      message: 'I could not find where the installer saved feedback.',
+      createdAt: '2026. 5. 18. 오후 1:10:00',
+    };
+
+    const saveResponse = await fetch(`${baseUrl}/api/feedback`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ feedback: [entry] }),
+    });
+    const saved = await saveResponse.json();
+    const loadResponse = await fetch(`${baseUrl}/api/feedback`);
+    const loaded = await loadResponse.json();
+
+    assert.equal(saveResponse.status, 200);
+    assert.equal(loadResponse.status, 200);
+    assert.equal(saved.feedback.length, 1);
+    assert.equal(loaded.feedback[0].message, entry.message);
+  });
+});

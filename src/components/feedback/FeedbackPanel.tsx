@@ -1,5 +1,5 @@
-import { Clipboard, MessageSquareText, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { Clipboard, CloudDownload, CloudUpload, Info, MessageSquareText, RotateCcw } from "lucide-react";
+import { useRef, useState } from "react";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import type { FeedbackEntry } from "../../types/qarko";
 import { SectionHeader } from "../ui/SectionHeader";
@@ -21,11 +21,22 @@ const easeOptions: Array<{ value: FeedbackEntry["ease"]; label: string; tone: "c
 ];
 
 export function FeedbackPanel() {
-  const { addFeedback, buildFeedbackReport, clearFeedback, feedback } = useQarkoStore();
+  const {
+    addFeedback,
+    buildFeedbackReport,
+    clearFeedback,
+    feedback,
+    loadFeedbackFromCloud,
+    sendFeedbackToCloud,
+    syncStatus,
+  } = useQarkoStore();
   const [area, setArea] = useState<FeedbackEntry["area"]>("install");
   const [ease, setEase] = useState<FeedbackEntry["ease"]>("confusing");
   const [message, setMessage] = useState("");
   const [copied, setCopied] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const savedListRef = useRef<HTMLDivElement>(null);
+  const isSyncing = syncStatus === "syncing";
 
   const submitFeedback = () => {
     const trimmed = message.trim();
@@ -33,6 +44,10 @@ export function FeedbackPanel() {
     addFeedback({ area, ease, message: trimmed });
     setMessage("");
     setCopied(false);
+    setJustSaved(true);
+    window.requestAnimationFrame(() => {
+      savedListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
 
   const copyReport = async () => {
@@ -47,8 +62,29 @@ export function FeedbackPanel() {
         <p className="text-sm font-semibold uppercase tracking-normal text-moss">Feedback</p>
         <h1 className="mt-1 text-3xl font-bold text-ink">테스트 피드백</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-          지인이 설치하고 사용하면서 막힌 지점을 바로 적어둘 수 있습니다. 저장된 내용은 복사해서 전달받으면 됩니다.
+          지인이 설치하고 사용하면서 막힌 지점을 바로 적어둘 수 있습니다. 피드백은 먼저 이 PC에 저장되고,
+          보내기 버튼을 누르면 Railway 서버에 모입니다.
         </p>
+      </div>
+
+      <div className="mb-5 grid gap-3 lg:grid-cols-[1fr_220px]">
+        <div className="rounded-md border border-line bg-white p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <Info className="mt-0.5 h-4 w-4 text-signal" />
+            <div>
+              <p className="text-sm font-semibold text-ink">확인 방법</p>
+              <p className="mt-1 text-sm leading-6 text-stone-600">
+                지인은 이 화면에서 피드백을 저장한 뒤 <span className="font-semibold text-ink">작성한 피드백 보내기</span>를 누릅니다.
+                당신은 같은 Railway API 주소로 접속한 QARKO OS에서 <span className="font-semibold text-ink">서버 피드백 불러오기</span>를 누르면 됩니다.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-md border border-line bg-panel p-4">
+          <p className="text-xs font-semibold uppercase tracking-normal text-moss">Saved feedback</p>
+          <p className="mt-2 text-3xl font-bold text-ink">{feedback.length}개</p>
+          <p className="mt-1 text-xs leading-5 text-stone-600">아래 저장된 피드백 목록에서 바로 확인됩니다.</p>
+        </div>
       </div>
 
       <section className="rounded-md border border-line bg-white p-5 shadow-sm">
@@ -95,17 +131,34 @@ export function FeedbackPanel() {
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             onClick={submitFeedback}
-            className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss"
+            disabled={!message.trim()}
+            className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50"
           >
             <MessageSquareText className="h-4 w-4" />
             피드백 저장
+          </button>
+          <button
+            onClick={sendFeedbackToCloud}
+            disabled={isSyncing || feedback.length === 0}
+            className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <CloudUpload className="h-4 w-4" />
+            작성한 피드백 보내기
+          </button>
+          <button
+            onClick={loadFeedbackFromCloud}
+            disabled={isSyncing}
+            className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <CloudDownload className="h-4 w-4" />
+            서버 피드백 불러오기
           </button>
           <button
             onClick={copyReport}
             className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel"
           >
             <Clipboard className="h-4 w-4" />
-            {copied ? "복사됨" : "리포트 복사"}
+            {copied ? "복사됨" : "전체 복사"}
           </button>
           <button
             onClick={clearFeedback}
@@ -115,14 +168,19 @@ export function FeedbackPanel() {
             비우기
           </button>
         </div>
+        {justSaved ? (
+          <p className="mt-3 rounded-md bg-panel p-3 text-sm leading-6 text-stone-700">
+            저장됐습니다. 지인 PC에서 작성한 피드백을 당신이 보려면 <span className="font-semibold text-ink">작성한 피드백 보내기</span>를 눌러야 합니다.
+          </p>
+        ) : null}
       </section>
 
-      <section className="mt-5 rounded-md border border-line bg-white p-5 shadow-sm">
+      <section ref={savedListRef} className="mt-5 rounded-md border border-line bg-white p-5 shadow-sm">
         <SectionHeader title="저장된 피드백" eyebrow={`${feedback.length} items`} />
         <div className="space-y-3">
           {feedback.length === 0 ? (
             <div className="rounded-md border border-dashed border-line bg-panel p-5 text-sm leading-6 text-stone-600">
-              아직 저장된 피드백이 없습니다.
+              아직 저장된 피드백이 없습니다. 피드백을 저장하거나 서버에서 불러오면 여기에 표시됩니다.
             </div>
           ) : (
             feedback.map((item) => {

@@ -182,6 +182,7 @@ export interface WorkspaceSnapshot {
   approvals: Approval[];
   artifacts: Artifact[];
   plugins: Plugin[];
+  feedback: FeedbackEntry[];
   activeRun: Run;
   actionNotice: string;
   updatedAt?: string;

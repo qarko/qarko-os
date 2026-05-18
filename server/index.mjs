@@ -97,6 +97,18 @@ export const createServer = ({ store = createWorkspaceStore(), distDir = default
         return;
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/feedback') {
+        sendJson(response, 200, { feedback: await store.loadFeedback() });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/feedback') {
+        const body = await readJsonBody(request);
+        const feedback = Array.isArray(body.feedback) ? body.feedback : [];
+        sendJson(response, 200, { feedback: await store.appendFeedback(feedback) });
+        return;
+      }
+
       if (url.pathname.startsWith('/api/')) {
         sendJson(response, 404, { ok: false, error: 'API route not found' });
         return;

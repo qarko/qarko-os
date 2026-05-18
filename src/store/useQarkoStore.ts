@@ -6,7 +6,13 @@ import {
   startHermesInstall,
 } from "../adapters/hermesDesktop";
 import { testHermesConnection } from "../adapters/hermesRuntime";
-import { getDefaultSyncEndpoint, loadWorkspaceSnapshot, saveWorkspaceSnapshot } from "../adapters/workspaceSync";
+import {
+  getDefaultSyncEndpoint,
+  loadFeedbackEntries,
+  loadWorkspaceSnapshot,
+  saveWorkspaceSnapshot,
+  sendFeedbackEntries,
+} from "../adapters/workspaceSync";
 import {
   activeRun,
   approvals as initialApprovals,
@@ -81,6 +87,8 @@ interface QarkoState {
   addFeedback: (input: NewFeedbackInput) => void;
   clearFeedback: () => void;
   buildFeedbackReport: () => string;
+  sendFeedbackToCloud: () => Promise<void>;
+  loadFeedbackFromCloud: () => Promise<void>;
 }
 
 const makeProjectName = (idea: string) => {
@@ -225,6 +233,7 @@ const makeWorkspaceSnapshot = (state: QarkoState): WorkspaceSnapshot => ({
   approvals: state.approvals,
   artifacts: state.artifacts,
   plugins: state.plugins,
+  feedback: state.feedback,
   activeRun: state.activeRun,
   actionNotice: state.actionNotice,
 });
@@ -237,9 +246,19 @@ const applyWorkspaceSnapshot = (snapshot: WorkspaceSnapshot) => ({
   approvals: snapshot.approvals,
   artifacts: snapshot.artifacts,
   plugins: snapshot.plugins,
+  feedback: snapshot.feedback ?? [],
   activeRun: snapshot.activeRun,
   actionNotice: snapshot.actionNotice,
 });
+
+const mergeFeedbackEntries = (local: FeedbackEntry[], remote: FeedbackEntry[]) => {
+  const seen = new Set<string>();
+  return [...remote, ...local].filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+};
 
 const feedbackAreaLabel: Record<FeedbackEntry["area"], string> = {
   install: "설치",
@@ -499,7 +518,8 @@ export const useQarkoStore = create<QarkoState>()(
           };
           return {
             feedback: [entry, ...state.feedback],
-            actionNotice: "피드백을 저장했습니다. 설정이나 피드백 화면에서 복사해 전달할 수 있습니다.",
+            actionNotice:
+              "피드백을 이 PC에 저장했습니다. 지인 PC에서 작성했다면 피드백 화면의 '작성한 피드백 보내기'를 눌러야 당신이 확인할 수 있습니다.",
           };
         }),
       clearFeedback: () =>
@@ -529,6 +549,60 @@ export const useQarkoStore = create<QarkoState>()(
           ),
         ];
         return lines.join("\n");
+      },
+      sendFeedbackToCloud: async () => {
+        const state = get();
+        if (state.feedback.length === 0) {
+          set({ actionNotice: "보낼 피드백이 아직 없습니다." });
+          return;
+        }
+
+        set({
+          syncStatus: "syncing",
+          syncError: undefined,
+          actionNotice: "작성한 피드백을 Railway 서버로 보내는 중입니다.",
+        });
+
+        try {
+          const cloudFeedback = await sendFeedbackEntries(state.syncEndpoint, state.feedback);
+          set({
+            feedback: mergeFeedbackEntries(state.feedback, cloudFeedback),
+            syncStatus: "synced",
+            syncError: undefined,
+            actionNotice: `피드백 ${cloudFeedback.length}개를 서버에 저장했습니다. 이제 다른 PC에서 '서버 피드백 불러오기'로 확인할 수 있습니다.`,
+          });
+        } catch (error) {
+          set({
+            syncStatus: "error",
+            syncError: error instanceof Error ? error.message : "피드백 보내기에 실패했습니다.",
+            actionNotice: "피드백 보내기에 실패했습니다. Railway API 주소와 인터넷 연결을 확인하세요.",
+          });
+        }
+      },
+      loadFeedbackFromCloud: async () => {
+        const state = get();
+        set({
+          syncStatus: "syncing",
+          syncError: undefined,
+          actionNotice: "Railway 서버에서 피드백을 불러오는 중입니다.",
+        });
+
+        try {
+          const cloudFeedback = await loadFeedbackEntries(state.syncEndpoint);
+          const mergedFeedback = mergeFeedbackEntries(state.feedback, cloudFeedback);
+          set({
+            feedback: mergedFeedback,
+            syncStatus: "synced",
+            syncError: undefined,
+            actionNotice: `서버 피드백 ${cloudFeedback.length}개를 불러왔습니다. 피드백 화면 아래 '저장된 피드백'에서 확인하세요.`,
+          });
+        } catch (error) {
+          set({
+            syncStatus: "error",
+            syncError: error instanceof Error ? error.message : "피드백 불러오기에 실패했습니다.",
+            actionNotice: "피드백 불러오기에 실패했습니다. Railway API 주소와 서버 상태를 확인하세요.",
+          });
+        }
       },
       setSyncEndpoint: (endpoint) =>
         set({

@@ -118,6 +118,7 @@ export const createSeedWorkspaceSnapshot = () => ({
       enabled: true,
     },
   ],
+  feedback: [],
   activeRun: {
     id: 'run-market-validation',
     projectId: 'project-ai-launchpad',
