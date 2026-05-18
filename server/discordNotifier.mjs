@@ -25,12 +25,13 @@ const easeColor = {
 };
 
 export const createDiscordNotifier = ({ webhookUrl = process.env.DISCORD_FEEDBACK_WEBHOOK_URL ?? '', fetchImpl = fetch } = {}) => {
-  const enabled = Boolean(webhookUrl.trim());
+  const trimmedWebhookUrl = webhookUrl.trim();
+  const enabled = Boolean(trimmedWebhookUrl);
 
   const notifyFeedback = async (entry) => {
     if (!enabled) return { ok: true, skipped: true };
 
-    const response = await fetchImpl(webhookUrl, {
+    const response = await fetchImpl(trimmedWebhookUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
