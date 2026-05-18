@@ -106,3 +106,22 @@ test('GET and POST /api/feedback collect tester feedback', async () => {
     assert.equal(loaded.feedback[0].message, entry.message);
   });
 });
+
+test('API routes include CORS headers for the desktop app webview', async () => {
+  await withTestServer(async (baseUrl) => {
+    const preflight = await fetch(`${baseUrl}/api/feedback`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'tauri://localhost',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type',
+      },
+    });
+    const response = await fetch(`${baseUrl}/api/feedback`);
+
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
+    assert.match(preflight.headers.get('access-control-allow-methods'), /POST/);
+    assert.equal(response.headers.get('access-control-allow-origin'), '*');
+  });
+});

@@ -19,10 +19,17 @@ const mimeTypes = new Map([
   ['.ico', 'image/x-icon'],
 ]);
 
+const apiCorsHeaders = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
+  'access-control-allow-headers': 'accept,content-type',
+};
+
 const sendJson = (response, statusCode, body) => {
   response.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
+    ...apiCorsHeaders,
   });
   response.end(JSON.stringify(body));
 };
@@ -77,6 +84,12 @@ export const createServer = ({ store = createWorkspaceStore(), distDir = default
     const url = new URL(request.url ?? '/', 'http://localhost');
 
     try {
+      if (request.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
+        response.writeHead(204, apiCorsHeaders);
+        response.end();
+        return;
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/health') {
         sendJson(response, 200, {
           ok: true,

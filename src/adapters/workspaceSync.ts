@@ -3,20 +3,27 @@ import type { FeedbackEntry, WorkspaceSnapshot } from "../types/qarko";
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 const productionApiEndpoint = "https://qarko-os-production.up.railway.app/api";
 
+const isRelativeApiSafe = () => {
+  if (typeof window === "undefined") return true;
+
+  const host = window.location.host;
+  return host.startsWith("127.0.0.1") || host.startsWith("localhost") || host.endsWith(".railway.app");
+};
+
 export const getDefaultSyncEndpoint = () => {
   const envEndpoint = import.meta.env.VITE_QARKO_API_URL;
   if (typeof envEndpoint === "string" && envEndpoint.trim()) return envEndpoint.trim();
 
-  if (typeof window === "undefined") return "/api";
+  return isRelativeApiSafe() ? "/api" : productionApiEndpoint;
+};
 
-  const host = window.location.host;
-  const isWebServer =
-    host.startsWith("127.0.0.1") || host.startsWith("localhost") || host.endsWith(".railway.app");
-  return isWebServer ? "/api" : productionApiEndpoint;
+const normalizeEndpoint = (endpoint: string) => {
+  const value = endpoint.trim() || "/api";
+  return value === "/api" && !isRelativeApiSafe() ? productionApiEndpoint : value;
 };
 
 const makeApiUrl = (endpoint: string, path: string) => {
-  const base = trimTrailingSlash(endpoint.trim() || "/api");
+  const base = trimTrailingSlash(normalizeEndpoint(endpoint));
   return `${base}${path}`;
 };
 
