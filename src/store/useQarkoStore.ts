@@ -26,7 +26,9 @@ import type {
   HermesConnection,
   HermesInstallStatus,
   HermesStatus,
+  NewFeedbackInput,
   NewProjectInput,
+  FeedbackEntry,
   Plugin,
   Project,
   SyncStatus,
@@ -41,6 +43,7 @@ interface QarkoState {
   approvals: Approval[];
   artifacts: Artifact[];
   plugins: Plugin[];
+  feedback: FeedbackEntry[];
   activeRun: typeof activeRun;
   actionNotice: string;
   automationPolicies: typeof automationPolicies;
@@ -75,6 +78,9 @@ interface QarkoState {
   updateHermesSetupProvider: (provider: string) => void;
   saveHermesGuidedSetup: () => Promise<void>;
   dismissHermesOnboarding: () => void;
+  addFeedback: (input: NewFeedbackInput) => void;
+  clearFeedback: () => void;
+  buildFeedbackReport: () => string;
 }
 
 const makeProjectName = (idea: string) => {
@@ -235,6 +241,21 @@ const applyWorkspaceSnapshot = (snapshot: WorkspaceSnapshot) => ({
   actionNotice: snapshot.actionNotice,
 });
 
+const feedbackAreaLabel: Record<FeedbackEntry["area"], string> = {
+  install: "설치",
+  hermes: "Hermes 설정",
+  project: "프로젝트 생성",
+  approval: "승인/실행",
+  sync: "동기화",
+  other: "기타",
+};
+
+const feedbackEaseLabel: Record<FeedbackEntry["ease"], string> = {
+  easy: "쉬웠음",
+  confusing: "헷갈림",
+  blocked: "막힘",
+};
+
 export const useQarkoStore = create<QarkoState>()(
   persist(
     (set, get) => ({
@@ -245,6 +266,7 @@ export const useQarkoStore = create<QarkoState>()(
       approvals: initialApprovals,
       artifacts,
       plugins: initialPlugins,
+      feedback: [],
       activeRun,
       actionNotice: "로컬 저장이 켜져 있습니다. 프로젝트, 승인, 플러그인 상태가 이 브라우저에 저장됩니다.",
       automationPolicies,
@@ -468,6 +490,46 @@ export const useQarkoStore = create<QarkoState>()(
         }
       },
       dismissHermesOnboarding: () => set({ showHermesOnboarding: false }),
+      addFeedback: (input) =>
+        set((state) => {
+          const entry: FeedbackEntry = {
+            ...input,
+            id: `feedback-${Date.now()}`,
+            createdAt: new Date().toLocaleString("ko-KR"),
+          };
+          return {
+            feedback: [entry, ...state.feedback],
+            actionNotice: "피드백을 저장했습니다. 설정이나 피드백 화면에서 복사해 전달할 수 있습니다.",
+          };
+        }),
+      clearFeedback: () =>
+        set({
+          feedback: [],
+          actionNotice: "저장된 피드백을 비웠습니다.",
+        }),
+      buildFeedbackReport: () => {
+        const state = get();
+        const lines = [
+          "# QARKO OS 테스트 피드백",
+          "",
+          `- Hermes 설치 상태: ${state.hermesInstallStatus}`,
+          `- Hermes 연결 상태: ${state.hermesStatus}`,
+          `- 선택 모델: ${state.hermesConnection.modelName || "미입력"}`,
+          `- 프로젝트 수: ${state.projects.length}`,
+          "",
+          "## 피드백",
+          ...(
+            state.feedback.length > 0
+              ? state.feedback.flatMap((item, index) => [
+                  "",
+                  `${index + 1}. [${feedbackAreaLabel[item.area]} / ${feedbackEaseLabel[item.ease]}] ${item.createdAt}`,
+                  item.message,
+                ])
+              : ["", "아직 저장된 피드백이 없습니다."]
+          ),
+        ];
+        return lines.join("\n");
+      },
       setSyncEndpoint: (endpoint) =>
         set({
           syncEndpoint: endpoint,
@@ -526,6 +588,7 @@ export const useQarkoStore = create<QarkoState>()(
         approvals: state.approvals,
         artifacts: state.artifacts,
         plugins: state.plugins,
+        feedback: state.feedback,
         activeRun: state.activeRun,
         actionNotice: state.actionNotice,
         syncEndpoint: state.syncEndpoint,

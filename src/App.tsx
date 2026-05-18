@@ -1,4 +1,5 @@
 import { WorkspaceDashboard } from "./components/dashboard/WorkspaceDashboard";
+import { FeedbackPanel } from "./components/feedback/FeedbackPanel";
 import { AppShell } from "./components/layout/AppShell";
 import { HermesOnboarding } from "./components/onboarding/HermesOnboarding";
 import { NewProjectPanel } from "./components/projects/NewProjectPanel";
@@ -16,6 +17,7 @@ export default function App() {
       {view === "project" ? <ProjectView /> : null}
       {view === "new-project" ? <NewProjectPanel /> : null}
       {view === "plugins" ? <PluginGallery /> : null}
+      {view === "feedback" ? <FeedbackPanel /> : null}
       {view === "settings" ? <SettingsPanel /> : null}
       <HermesOnboarding />
     </AppShell>

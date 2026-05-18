@@ -1,4 +1,4 @@
-import { Boxes, CircuitBoard, FolderKanban, Plug, Settings, Sparkles, UsersRound } from "lucide-react";
+import { Boxes, CircuitBoard, FolderKanban, MessageSquareText, Plug, Settings, Sparkles, UsersRound } from "lucide-react";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import type { AppView } from "../../types/qarko";
 import { StatusBadge } from "../ui/StatusBadge";
@@ -7,6 +7,7 @@ const navItems: Array<{ view: AppView; label: string; icon: React.ComponentType<
   { view: "workspace", label: "대시보드", icon: CircuitBoard },
   { view: "new-project", label: "새 프로젝트", icon: Sparkles },
   { view: "plugins", label: "플러그인", icon: Plug },
+  { view: "feedback", label: "피드백", icon: MessageSquareText },
 ];
 
 export function Sidebar() {

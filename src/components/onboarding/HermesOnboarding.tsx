@@ -42,6 +42,9 @@ export function HermesOnboarding() {
             <p className="mt-2 text-sm leading-6 text-stone-600">
               터미널이나 PowerShell을 열지 않고 Hermes 설치와 기본 모델 설정을 진행합니다. 어려운 항목은 숨기고, 필요한 선택만 순서대로 보여드립니다.
             </p>
+            <p className="mt-2 text-sm leading-6 text-stone-600">
+              처음 써보는 사람은 1. 설치, 2. 상태 확인, 3. 모델 설정 저장, 4. 연결 테스트 순서로 누르면 됩니다.
+            </p>
           </div>
           <button
             onClick={dismissHermesOnboarding}

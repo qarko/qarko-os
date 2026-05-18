@@ -9,7 +9,7 @@ export type Status =
 
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type AutomationMode = "manual" | "assisted" | "automation" | "custom";
-export type AppView = "workspace" | "project" | "new-project" | "plugins" | "settings";
+export type AppView = "workspace" | "project" | "new-project" | "plugins" | "feedback" | "settings";
 export type ApprovalDecision = "approved" | "revise" | "cancelled";
 export type RuntimeStatus = "connected" | "not_connected" | "mock";
 export type SyncStatus = "idle" | "syncing" | "synced" | "error";
@@ -145,6 +145,20 @@ export interface NewProjectInput {
   idea: string;
   mode: AutomationMode;
   customRules?: ApprovalRule[];
+}
+
+export interface FeedbackEntry {
+  id: string;
+  area: "install" | "hermes" | "project" | "approval" | "sync" | "other";
+  ease: "easy" | "confusing" | "blocked";
+  message: string;
+  createdAt: string;
+}
+
+export interface NewFeedbackInput {
+  area: FeedbackEntry["area"];
+  ease: FeedbackEntry["ease"];
+  message: string;
 }
 
 export interface HermesConnection {
