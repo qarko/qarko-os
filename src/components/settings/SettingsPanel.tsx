@@ -1,4 +1,5 @@
 import { CheckCircle2, CloudDownload, CloudUpload, KeyRound, PlugZap, RotateCcw, Save, Server, ShieldCheck } from "lucide-react";
+import { hermesProviderOptions } from "../../data/hermesProviders";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import { SectionHeader } from "../ui/SectionHeader";
 import { StatusBadge } from "../ui/StatusBadge";
@@ -175,11 +176,11 @@ export function SettingsPanel() {
               onChange={(event) => updateHermesSetupProvider(event.target.value)}
               className="rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
             >
-              <option value="openrouter">OpenRouter</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic / Claude</option>
-              <option value="nous">Nous Portal</option>
-              <option value="custom">직접 입력</option>
+              {hermesProviderOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <label className="grid gap-2 text-sm font-semibold text-ink">

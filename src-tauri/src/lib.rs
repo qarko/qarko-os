@@ -85,15 +85,9 @@ fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
 #[tauri::command]
 fn hermes_status() -> HermesStatus {
     if let Some(path) = find_hermes_executable() {
-        let version = Command::new(&path)
-            .arg("--version")
-            .output()
+        let version = run_hidden_command(Command::new(&path).arg("--version"))
             .ok()
-            .map(|output| {
-                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                if stdout.is_empty() { stderr } else { stdout }
-            })
+            .map(|result| result.output)
             .filter(|value| !value.is_empty());
 
         return HermesStatus {
@@ -135,6 +129,9 @@ fn api_key_name_for_provider(provider: &str) -> Option<&'static str> {
         "openrouter" => Some("OPENROUTER_API_KEY"),
         "openai" => Some("OPENAI_API_KEY"),
         "anthropic" => Some("ANTHROPIC_API_KEY"),
+        "deepseek" => Some("DEEPSEEK_API_KEY"),
+        "google" => Some("GEMINI_API_KEY"),
+        "xai" => Some("XAI_API_KEY"),
         "nous" => Some("NOUS_API_KEY"),
         "custom" => Some("OPENAI_API_KEY"),
         _ => None,
@@ -178,8 +175,28 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
     if request.provider.trim() == "custom" {
         let endpoint = request.endpoint.trim();
         if !endpoint.is_empty() {
-            let endpoint_result = run_hidden_command(Command::new(&hermes).args(["config", "set", "providers.custom.base_url", endpoint]))?;
+            let endpoint_result = run_hidden_command(Command::new(&hermes).args(["config", "set", "model.base_url", endpoint]))?;
             outputs.push(endpoint_result.output);
+            if !endpoint_result.ok {
+                return Ok(CommandResult {
+                    ok: false,
+                    message: "Hermes custom endpoint 저장에 실패했습니다.".to_string(),
+                    output: outputs.join("\n"),
+                });
+            }
+        }
+
+        let api_key = request.api_key.trim();
+        if !api_key.is_empty() {
+            let key_result = run_hidden_command(Command::new(&hermes).args(["config", "set", "model.api_key", api_key]))?;
+            outputs.push(key_result.output);
+            if !key_result.ok {
+                return Ok(CommandResult {
+                    ok: false,
+                    message: "Hermes custom API key 저장에 실패했습니다.".to_string(),
+                    output: outputs.join("\n"),
+                });
+            }
         }
     }
 

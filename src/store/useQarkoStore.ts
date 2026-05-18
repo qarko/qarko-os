@@ -23,6 +23,7 @@ import {
   projects as initialProjects,
   workspace,
 } from "../data/mockData";
+import { getHermesProviderOption } from "../data/hermesProviders";
 import type {
   AppView,
   Approval,
@@ -443,7 +444,6 @@ export const useQarkoStore = create<QarkoState>()(
             hermesInstallStatus: status.installed ? "installed" : "missing",
             hermesExecutablePath: status.executablePath,
             hermesInstallMessage: status.version ? `${status.message} ${status.version}` : status.message,
-            showHermesOnboarding: !status.installed,
           });
         } catch (error) {
           set({
@@ -474,10 +474,19 @@ export const useQarkoStore = create<QarkoState>()(
         }
       },
       updateHermesSetupProvider: (provider) =>
-        set({
-          hermesSetupProvider: provider,
-          hermesSetupOutput: "",
-          actionNotice: "Hermes 모델 제공자를 선택했습니다.",
+        set((state) => {
+          const option = getHermesProviderOption(provider);
+          return {
+            hermesSetupProvider: provider,
+            hermesSetupOutput: "",
+            hermesConnection: {
+              ...state.hermesConnection,
+              endpoint: option.defaultEndpoint || state.hermesConnection.endpoint,
+              modelName: option.defaultModel || state.hermesConnection.modelName,
+              apiKey: "",
+            },
+            actionNotice: `${option.label} 설정 흐름을 선택했습니다.`,
+          };
         }),
       saveHermesGuidedSetup: async () => {
         const state = get();
