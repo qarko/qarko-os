@@ -27,6 +27,11 @@ const makeApiUrl = (endpoint: string, path: string) => {
   return `${base}${path}`;
 };
 
+const makeJsonHeaders = (accessToken?: string) => ({
+  accept: "application/json",
+  ...(accessToken?.trim() ? { "x-qarko-access-token": accessToken.trim() } : {}),
+});
+
 const readJsonResponse = async <T>(response: Response): Promise<T> => {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -36,22 +41,23 @@ const readJsonResponse = async <T>(response: Response): Promise<T> => {
   return body as T;
 };
 
-export const loadWorkspaceSnapshot = async (endpoint: string): Promise<WorkspaceSnapshot> => {
+export const loadWorkspaceSnapshot = async (endpoint: string, accessToken?: string): Promise<WorkspaceSnapshot> => {
   const response = await fetch(makeApiUrl(endpoint, "/workspace"), {
     method: "GET",
-    headers: { accept: "application/json" },
+    headers: makeJsonHeaders(accessToken),
   });
   return readJsonResponse<WorkspaceSnapshot>(response);
 };
 
 export const saveWorkspaceSnapshot = async (
   endpoint: string,
-  snapshot: WorkspaceSnapshot
+  snapshot: WorkspaceSnapshot,
+  accessToken?: string
 ): Promise<WorkspaceSnapshot> => {
   const response = await fetch(makeApiUrl(endpoint, "/workspace"), {
     method: "PUT",
     headers: {
-      accept: "application/json",
+      ...makeJsonHeaders(accessToken),
       "content-type": "application/json",
     },
     body: JSON.stringify(snapshot),
@@ -59,10 +65,10 @@ export const saveWorkspaceSnapshot = async (
   return readJsonResponse<WorkspaceSnapshot>(response);
 };
 
-export const loadFeedbackEntries = async (endpoint: string): Promise<FeedbackEntry[]> => {
+export const loadFeedbackEntries = async (endpoint: string, accessToken?: string): Promise<FeedbackEntry[]> => {
   const response = await fetch(makeApiUrl(endpoint, "/feedback"), {
     method: "GET",
-    headers: { accept: "application/json" },
+    headers: makeJsonHeaders(accessToken),
   });
   const body = await readJsonResponse<{ feedback: FeedbackEntry[] }>(response);
   return body.feedback;

@@ -153,12 +153,31 @@ export interface FeedbackEntry {
   ease: "easy" | "confusing" | "blocked";
   message: string;
   createdAt: string;
+  testerName?: string;
+  testerContact?: string;
+  appVersion?: string;
+}
+
+export interface ReviewNote {
+  id: string;
+  target: string;
+  message: string;
+  status: "open" | "in_progress" | "done";
+  createdAt: string;
+}
+
+export interface NewReviewNoteInput {
+  target: string;
+  message: string;
 }
 
 export interface NewFeedbackInput {
   area: FeedbackEntry["area"];
   ease: FeedbackEntry["ease"];
   message: string;
+  testerName?: string;
+  testerContact?: string;
+  appVersion?: string;
 }
 
 export interface HermesConnection {
@@ -183,6 +202,7 @@ export interface WorkspaceSnapshot {
   artifacts: Artifact[];
   plugins: Plugin[];
   feedback: FeedbackEntry[];
+  reviewNotes?: ReviewNote[];
   activeRun: Run;
   actionNotice: string;
   updatedAt?: string;

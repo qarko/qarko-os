@@ -26,6 +26,12 @@ struct HermesSetupRequest {
     endpoint: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HermesLoginRequest {
+    provider: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CommandResult {
@@ -211,13 +217,48 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
     })
 }
 
+#[tauri::command]
+fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, String> {
+    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent가 아직 설치되지 않았습니다.".to_string())?;
+    let provider = request.provider.trim();
+    let allowed_provider = match provider {
+        "nous" | "openai-codex" | "xai-oauth" => provider,
+        _ => return Err("이 제공자는 QARKO OS OAuth 로그인에서 아직 지원하지 않습니다.".to_string()),
+    };
+
+    let result = run_hidden_command(
+        Command::new(&hermes).args([
+            "login",
+            "--provider",
+            allowed_provider,
+            "--timeout",
+            "180",
+        ])
+    )?;
+
+    if result.ok {
+        Ok(CommandResult {
+            ok: true,
+            message: "Hermes OAuth 로그인이 완료되었습니다.".to_string(),
+            output: result.output,
+        })
+    } else {
+        Ok(CommandResult {
+            ok: false,
+            message: "Hermes OAuth 로그인이 완료되지 않았습니다.".to_string(),
+            output: result.output,
+        })
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             hermes_status,
             install_hermes,
-            configure_hermes
+            configure_hermes,
+            login_hermes_provider
         ])
         .run(tauri::generate_context!())
         .expect("error while running QARKO OS");

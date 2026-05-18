@@ -7,6 +7,11 @@ import { test } from 'node:test';
 import { createServer } from '../server/index.mjs';
 import { createWorkspaceStore } from '../server/workspaceStore.mjs';
 
+const noopNotifier = {
+  enabled: false,
+  notifyFeedback: async () => ({ ok: true, skipped: true }),
+};
+
 const listen = (server) =>
   new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -21,7 +26,20 @@ const close = (server) => new Promise((resolve) => server.close(resolve));
 const withTestServer = async (callback) => {
   const dir = await mkdtemp(join(tmpdir(), 'qarko-api-'));
   const store = createWorkspaceStore({ filePath: join(dir, 'workspace.json') });
-  const server = createServer({ store, distDir: join(dir, 'dist') });
+  const server = createServer({ store, distDir: join(dir, 'dist'), discordNotifier: noopNotifier });
+  const baseUrl = await listen(server);
+  try {
+    await callback(baseUrl);
+  } finally {
+    await close(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+};
+
+const withProtectedTestServer = async (callback) => {
+  const dir = await mkdtemp(join(tmpdir(), 'qarko-api-'));
+  const store = createWorkspaceStore({ filePath: join(dir, 'workspace.json') });
+  const server = createServer({ store, distDir: join(dir, 'dist'), accessToken: 'secret-admin-token', discordNotifier: noopNotifier });
   const baseUrl = await listen(server);
   try {
     await callback(baseUrl);
@@ -124,4 +142,75 @@ test('API routes include CORS headers for the desktop app webview', async () => 
     assert.match(preflight.headers.get('access-control-allow-methods'), /POST/);
     assert.equal(response.headers.get('access-control-allow-origin'), '*');
   });
+});
+
+test('protected API requires admin token for reads and workspace writes', async () => {
+  await withProtectedTestServer(async (baseUrl) => {
+    const blockedFeedback = await fetch(`${baseUrl}/api/feedback`);
+    const blockedWorkspace = await fetch(`${baseUrl}/api/workspace`);
+    const allowedFeedbackPost = await fetch(`${baseUrl}/api/feedback`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        feedback: [{
+          id: 'feedback-public-submit',
+          area: 'sync',
+          ease: 'confusing',
+          message: 'Public beta feedback submit should stay open.',
+          createdAt: '2026. 5. 18. 오후 3:00:00',
+        }],
+      }),
+    });
+    const allowedFeedbackRead = await fetch(`${baseUrl}/api/feedback`, {
+      headers: { 'x-qarko-access-token': 'secret-admin-token' },
+    });
+
+    assert.equal(blockedFeedback.status, 401);
+    assert.equal(blockedWorkspace.status, 401);
+    assert.equal(allowedFeedbackPost.status, 200);
+    assert.equal(allowedFeedbackRead.status, 200);
+    assert.equal((await allowedFeedbackRead.json()).feedback.length, 1);
+  });
+});
+
+test('feedback POST sends Discord notification when notifier is configured', async () => {
+  const notifications = [];
+  const notifier = {
+    enabled: true,
+    notifyFeedback: async (entry) => {
+      notifications.push(entry);
+      return { ok: true, skipped: false };
+    },
+  };
+  const dir = await mkdtemp(join(tmpdir(), 'qarko-api-'));
+  const store = createWorkspaceStore({ filePath: join(dir, 'workspace.json') });
+  const server = createServer({ store, distDir: join(dir, 'dist'), discordNotifier: notifier });
+  const baseUrl = await listen(server);
+  try {
+    const response = await fetch(`${baseUrl}/api/feedback`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        feedback: [{
+          id: 'feedback-discord-1',
+          area: 'hermes',
+          ease: 'blocked',
+          testerName: 'Tester A',
+          testerContact: '@tester',
+          message: 'Hermes wizard disappeared.',
+          createdAt: '2026. 5. 18. 오후 3:10:00',
+        }],
+      }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].id, 'feedback-discord-1');
+    assert.equal(body.discord.enabled, true);
+    assert.equal(body.discord.sent, 1);
+  } finally {
+    await close(server);
+    await rm(dir, { recursive: true, force: true });
+  }
 });

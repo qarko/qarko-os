@@ -1,4 +1,4 @@
-import { Clipboard, CloudDownload, CloudUpload, Info, MessageSquareText, RotateCcw } from "lucide-react";
+import { Clipboard, CloudDownload, CloudUpload, Info, MessageSquareText, RotateCcw, UsersRound } from "lucide-react";
 import { useRef, useState } from "react";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import type { FeedbackEntry } from "../../types/qarko";
@@ -20,6 +20,17 @@ const easeOptions: Array<{ value: FeedbackEntry["ease"]; label: string; tone: "c
   { value: "blocked", label: "막힘", tone: "failed" },
 ];
 
+const betaTesterPost = `QARKO OS 베타 테스터 3~5명을 찾고 있습니다.
+
+QARKO OS는 Hermes Agent를 비개발자도 Windows 앱에서 쉽게 설치/설정하고, 1인 사업 운영에 활용할 수 있게 만드는 실시간 운영체제입니다.
+
+테스트 요청:
+1. Windows 설치 파일로 설치
+2. 첫 실행 Hermes 설정 마법사 진행
+3. 막히는 지점은 앱 안의 피드백 화면에서 저장 후 보내기
+
+개발 지식이 없어도 괜찮습니다. 오히려 초보자 관점의 막힘이 가장 중요합니다.`;
+
 export function FeedbackPanel() {
   const {
     addFeedback,
@@ -32,8 +43,11 @@ export function FeedbackPanel() {
   } = useQarkoStore();
   const [area, setArea] = useState<FeedbackEntry["area"]>("install");
   const [ease, setEase] = useState<FeedbackEntry["ease"]>("confusing");
+  const [testerName, setTesterName] = useState("");
+  const [testerContact, setTesterContact] = useState("");
   const [message, setMessage] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copiedRecruiting, setCopiedRecruiting] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const savedListRef = useRef<HTMLDivElement>(null);
   const isSyncing = syncStatus === "syncing";
@@ -41,7 +55,14 @@ export function FeedbackPanel() {
   const submitFeedback = () => {
     const trimmed = message.trim();
     if (!trimmed) return;
-    addFeedback({ area, ease, message: trimmed });
+    addFeedback({
+      area,
+      ease,
+      message: trimmed,
+      testerName: testerName.trim() || undefined,
+      testerContact: testerContact.trim() || undefined,
+      appVersion: "0.1.0",
+    });
     setMessage("");
     setCopied(false);
     setJustSaved(true);
@@ -54,6 +75,11 @@ export function FeedbackPanel() {
     const report = buildFeedbackReport();
     await navigator.clipboard.writeText(report);
     setCopied(true);
+  };
+
+  const copyRecruitingPost = async () => {
+    await navigator.clipboard.writeText(betaTesterPost);
+    setCopiedRecruiting(true);
   };
 
   return (
@@ -87,6 +113,24 @@ export function FeedbackPanel() {
         </div>
       </div>
 
+      <section className="mb-5 rounded-md border border-line bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <SectionHeader title="무료 베타 테스터 모집" eyebrow="Beta ops" />
+            <p className="max-w-2xl text-sm leading-6 text-stone-600">
+              Threads나 지인에게 바로 보낼 수 있는 짧은 모집 문구입니다. 3~5명에게 설치, 첫 실행, Hermes 설정, 피드백 보내기만 부탁하면 됩니다.
+            </p>
+          </div>
+          <button
+            onClick={copyRecruitingPost}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel"
+          >
+            <UsersRound className="h-4 w-4" />
+            {copiedRecruiting ? "복사됨" : "모집 문구 복사"}
+          </button>
+        </div>
+      </section>
+
       <section className="rounded-md border border-line bg-white p-5 shadow-sm">
         <SectionHeader title="새 피드백 기록" eyebrow="Capture" />
         <div className="grid gap-3 lg:grid-cols-[180px_220px_1fr]">
@@ -119,12 +163,30 @@ export function FeedbackPanel() {
             </select>
           </label>
           <label className="grid gap-2 text-sm font-semibold text-ink">
+            이름
+            <input
+              value={testerName}
+              onChange={(event) => setTesterName(event.target.value)}
+              placeholder="선택 입력"
+              className="rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
+            />
+          </label>
+          <label className="grid gap-2 text-sm font-semibold text-ink">
+            연락처
+            <input
+              value={testerContact}
+              onChange={(event) => setTesterContact(event.target.value)}
+              placeholder="Threads, 카톡, 이메일 등"
+              className="rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
+            />
+          </label>
+          <label className="grid gap-2 text-sm font-semibold text-ink">
             메모
             <textarea
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               placeholder="어디서 막혔는지, 어떤 문구가 헷갈렸는지 적어주세요."
-              className="min-h-24 rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
+              className="min-h-24 rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal lg:min-h-28"
             />
           </label>
         </div>
@@ -192,7 +254,9 @@ export function FeedbackPanel() {
                     <span className="text-sm font-semibold text-ink">{areaLabel}</span>
                     <StatusBadge tone={ease?.tone ?? "planned"} label={ease?.label ?? item.ease} />
                     <span className="text-xs text-moss">{item.createdAt}</span>
+                    {item.testerName ? <span className="text-xs text-stone-500">테스터: {item.testerName}</span> : null}
                   </div>
+                  {item.testerContact ? <p className="mb-2 text-xs text-stone-500">연락처: {item.testerContact}</p> : null}
                   <p className="text-sm leading-6 text-stone-700">{item.message}</p>
                 </article>
               );

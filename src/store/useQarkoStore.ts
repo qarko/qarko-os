@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import {
   configureHermesGuidedSetup,
   getHermesDesktopStatus,
+  loginHermesProvider,
   startHermesInstall,
 } from "../adapters/hermesDesktop";
 import { testHermesConnection } from "../adapters/hermesRuntime";
@@ -35,9 +36,11 @@ import type {
   HermesStatus,
   NewFeedbackInput,
   NewProjectInput,
+  NewReviewNoteInput,
   FeedbackEntry,
   Plugin,
   Project,
+  ReviewNote,
   SyncStatus,
   WorkspaceSnapshot,
 } from "../types/qarko";
@@ -51,10 +54,12 @@ interface QarkoState {
   artifacts: Artifact[];
   plugins: Plugin[];
   feedback: FeedbackEntry[];
+  reviewNotes: ReviewNote[];
   activeRun: typeof activeRun;
   actionNotice: string;
   automationPolicies: typeof automationPolicies;
   syncEndpoint: string;
+  syncAccessToken: string;
   syncStatus: SyncStatus;
   syncError?: string;
   hermesConnection: HermesConnection;
@@ -66,6 +71,8 @@ interface QarkoState {
   hermesInstallMessage: string;
   hermesSetupProvider: string;
   hermesSetupOutput: string;
+  hermesAuthStatus: "idle" | "running" | "completed" | "error";
+  hermesAuthMessage: string;
   showHermesOnboarding: boolean;
   selectProject: (projectId: string) => void;
   setView: (view: AppView) => void;
@@ -76,6 +83,7 @@ interface QarkoState {
   runNextStep: () => void;
   resetWorkspace: () => void;
   setSyncEndpoint: (endpoint: string) => void;
+  setSyncAccessToken: (token: string) => void;
   saveToCloud: () => Promise<void>;
   loadFromCloud: () => Promise<void>;
   updateHermesConnection: (connection: Partial<HermesConnection>) => void;
@@ -84,10 +92,13 @@ interface QarkoState {
   installHermesDesktop: () => Promise<void>;
   updateHermesSetupProvider: (provider: string) => void;
   saveHermesGuidedSetup: () => Promise<void>;
+  loginHermesOAuthProvider: () => Promise<void>;
   dismissHermesOnboarding: () => void;
   addFeedback: (input: NewFeedbackInput) => void;
   clearFeedback: () => void;
   buildFeedbackReport: () => string;
+  addReviewNote: (input: NewReviewNoteInput) => void;
+  updateReviewNoteStatus: (noteId: string, status: ReviewNote["status"]) => void;
   sendFeedbackToCloud: () => Promise<void>;
   loadFeedbackFromCloud: () => Promise<void>;
 }
@@ -235,6 +246,7 @@ const makeWorkspaceSnapshot = (state: QarkoState): WorkspaceSnapshot => ({
   artifacts: state.artifacts,
   plugins: state.plugins,
   feedback: state.feedback,
+  reviewNotes: state.reviewNotes,
   activeRun: state.activeRun,
   actionNotice: state.actionNotice,
 });
@@ -248,6 +260,7 @@ const applyWorkspaceSnapshot = (snapshot: WorkspaceSnapshot) => ({
   artifacts: snapshot.artifacts,
   plugins: snapshot.plugins,
   feedback: snapshot.feedback ?? [],
+  reviewNotes: snapshot.reviewNotes ?? [],
   activeRun: snapshot.activeRun,
   actionNotice: snapshot.actionNotice,
 });
@@ -287,10 +300,12 @@ export const useQarkoStore = create<QarkoState>()(
       artifacts,
       plugins: initialPlugins,
       feedback: [],
+      reviewNotes: [],
       activeRun,
       actionNotice: "로컬 저장이 켜져 있습니다. 프로젝트, 승인, 플러그인 상태가 이 브라우저에 저장됩니다.",
       automationPolicies,
       syncEndpoint: getDefaultSyncEndpoint(),
+      syncAccessToken: "",
       syncStatus: "idle",
       hermesConnection: {
         endpoint: "http://localhost:11434/v1",
@@ -304,6 +319,8 @@ export const useQarkoStore = create<QarkoState>()(
       hermesInstallMessage: "Hermes 설치 상태를 확인하지 않았습니다.",
       hermesSetupProvider: "openrouter",
       hermesSetupOutput: "",
+      hermesAuthStatus: "idle",
+      hermesAuthMessage: "OAuth 제공자를 선택하면 QARKO OS 안에서 로그인 흐름을 시작할 수 있습니다.",
       showHermesOnboarding: true,
       selectProject: (projectId) => set({ selectedProjectId: projectId, view: "project" }),
       setView: (view) => set({ view }),
@@ -505,7 +522,7 @@ export const useQarkoStore = create<QarkoState>()(
           set({
             hermesInstallMessage: result.message,
             hermesSetupOutput: result.output,
-            showHermesOnboarding: !result.ok,
+            showHermesOnboarding: true,
             actionNotice: result.ok
               ? "Hermes 기본 설정을 저장했습니다. 연결 테스트를 눌러 확인하세요."
               : "Hermes 설정 저장에 실패했습니다. 메시지를 확인하세요.",
@@ -514,6 +531,32 @@ export const useQarkoStore = create<QarkoState>()(
           set({
             hermesInstallStatus: "error",
             hermesInstallMessage: error instanceof Error ? error.message : "Hermes 설정 저장에 실패했습니다.",
+          });
+        }
+      },
+      loginHermesOAuthProvider: async () => {
+        const state = get();
+        set({
+          hermesAuthStatus: "running",
+          hermesAuthMessage: "브라우저 로그인 창을 여는 중입니다. 로그인 후 QARKO OS로 돌아와 완료 여부를 확인하세요.",
+          hermesSetupOutput: "",
+          actionNotice: "Hermes OAuth 로그인을 시작했습니다.",
+        });
+        try {
+          const result = await loginHermesProvider(state.hermesSetupProvider);
+          set({
+            hermesAuthStatus: result.ok ? "completed" : "error",
+            hermesAuthMessage: result.message,
+            hermesSetupOutput: result.output,
+            actionNotice: result.ok
+              ? "Hermes OAuth 로그인이 완료되었습니다. 이제 모델 설정 저장과 연결 테스트를 진행하세요."
+              : "Hermes OAuth 로그인이 완료되지 않았습니다. 메시지를 확인하고 다시 시도하세요.",
+          });
+        } catch (error) {
+          set({
+            hermesAuthStatus: "error",
+            hermesAuthMessage: error instanceof Error ? error.message : "Hermes OAuth 로그인에 실패했습니다.",
+            actionNotice: "Hermes OAuth 로그인에 실패했습니다.",
           });
         }
       },
@@ -552,6 +595,9 @@ export const useQarkoStore = create<QarkoState>()(
               ? state.feedback.flatMap((item, index) => [
                   "",
                   `${index + 1}. [${feedbackAreaLabel[item.area]} / ${feedbackEaseLabel[item.ease]}] ${item.createdAt}`,
+                  item.testerName ? `- 테스터: ${item.testerName}` : "- 테스터: 미입력",
+                  item.testerContact ? `- 연락처: ${item.testerContact}` : "- 연락처: 미입력",
+                  item.appVersion ? `- 앱 버전: ${item.appVersion}` : "- 앱 버전: 0.1.0",
                   item.message,
                 ])
               : ["", "아직 저장된 피드백이 없습니다."]
@@ -559,6 +605,35 @@ export const useQarkoStore = create<QarkoState>()(
         ];
         return lines.join("\n");
       },
+      addReviewNote: (input) =>
+        set((state) => {
+          const note: ReviewNote = {
+            id: `note-${Date.now()}`,
+            target: input.target.trim() || "현재 화면",
+            message: input.message.trim(),
+            status: "open",
+            createdAt: new Date().toLocaleString("ko-KR"),
+          };
+          const feedbackEntry: FeedbackEntry = {
+            id: `feedback-${Date.now()}-note`,
+            area: "other",
+            ease: "confusing",
+            message: `[화면 주석] ${note.target}\n${note.message}`,
+            testerName: "QARKO Owner",
+            appVersion: "0.1.0",
+            createdAt: note.createdAt,
+          };
+          return {
+            reviewNotes: [note, ...state.reviewNotes],
+            feedback: [feedbackEntry, ...state.feedback],
+            actionNotice: "화면 주석을 저장했습니다. 피드백 보내기를 누르면 Discord에도 전달됩니다.",
+          };
+        }),
+      updateReviewNoteStatus: (noteId, status) =>
+        set((state) => ({
+          reviewNotes: state.reviewNotes.map((note) => (note.id === noteId ? { ...note, status } : note)),
+          actionNotice: "주석 상태를 업데이트했습니다.",
+        })),
       sendFeedbackToCloud: async () => {
         const state = get();
         if (state.feedback.length === 0) {
@@ -597,7 +672,7 @@ export const useQarkoStore = create<QarkoState>()(
         });
 
         try {
-          const cloudFeedback = await loadFeedbackEntries(state.syncEndpoint);
+          const cloudFeedback = await loadFeedbackEntries(state.syncEndpoint, state.syncAccessToken);
           const mergedFeedback = mergeFeedbackEntries(state.feedback, cloudFeedback);
           set({
             feedback: mergedFeedback,
@@ -622,11 +697,20 @@ export const useQarkoStore = create<QarkoState>()(
             ? "클라우드 동기화 주소를 저장했습니다."
             : "클라우드 동기화 주소를 비웠습니다. 기본 /api 주소를 사용합니다.",
         }),
+      setSyncAccessToken: (token) =>
+        set({
+          syncAccessToken: token,
+          syncStatus: "idle",
+          syncError: undefined,
+          actionNotice: token.trim()
+            ? "관리자 토큰을 이 PC에 저장했습니다. 서버 조회와 워크스페이스 동기화에 사용합니다."
+            : "관리자 토큰을 비웠습니다. 테스터 피드백 전송은 가능하지만 서버 조회는 제한될 수 있습니다.",
+        }),
       saveToCloud: async () => {
         const state = get();
         set({ syncStatus: "syncing", syncError: undefined, actionNotice: "Railway/API 서버에 워크스페이스를 저장하는 중입니다." });
         try {
-          const saved = await saveWorkspaceSnapshot(state.syncEndpoint, makeWorkspaceSnapshot(state));
+          const saved = await saveWorkspaceSnapshot(state.syncEndpoint, makeWorkspaceSnapshot(state), state.syncAccessToken);
           set({
             ...applyWorkspaceSnapshot(saved),
             syncStatus: "synced",
@@ -642,10 +726,10 @@ export const useQarkoStore = create<QarkoState>()(
         }
       },
       loadFromCloud: async () => {
-        const endpoint = get().syncEndpoint;
+        const { syncEndpoint, syncAccessToken } = get();
         set({ syncStatus: "syncing", syncError: undefined, actionNotice: "Railway/API 서버에서 워크스페이스를 불러오는 중입니다." });
         try {
-          const snapshot = await loadWorkspaceSnapshot(endpoint);
+          const snapshot = await loadWorkspaceSnapshot(syncEndpoint, syncAccessToken);
           set({
             ...applyWorkspaceSnapshot(snapshot),
             syncStatus: "synced",
@@ -672,12 +756,14 @@ export const useQarkoStore = create<QarkoState>()(
         artifacts: state.artifacts,
         plugins: state.plugins,
         feedback: state.feedback,
+        reviewNotes: state.reviewNotes,
         activeRun: state.activeRun,
         actionNotice: state.actionNotice,
         syncEndpoint: state.syncEndpoint,
+        syncAccessToken: state.syncAccessToken,
         hermesConnection: {
           ...state.hermesConnection,
-          apiKey: state.hermesConnection.apiKey,
+          apiKey: "",
         },
         hermesStatus: state.hermesStatus,
         hermesMessage: state.hermesMessage,
@@ -687,6 +773,8 @@ export const useQarkoStore = create<QarkoState>()(
         hermesInstallMessage: state.hermesInstallMessage,
         hermesSetupProvider: state.hermesSetupProvider,
         hermesSetupOutput: state.hermesSetupOutput,
+        hermesAuthStatus: state.hermesAuthStatus,
+        hermesAuthMessage: state.hermesAuthMessage,
         showHermesOnboarding: state.showHermesOnboarding,
       }),
     }

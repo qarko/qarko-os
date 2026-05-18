@@ -22,8 +22,10 @@ export function SettingsPanel() {
     resetWorkspace,
     saveHermesGuidedSetup,
     saveToCloud,
+    setSyncAccessToken,
     setSyncEndpoint,
     testHermesRuntime,
+    syncAccessToken,
     syncEndpoint,
     syncError,
     syncStatus,
@@ -235,6 +237,20 @@ export function SettingsPanel() {
           placeholder="/api 또는 https://qarko-os.up.railway.app/api"
           className="mt-2 w-full rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
         />
+        <label className="mt-4 block text-sm font-semibold text-ink" htmlFor="sync-token">
+          관리자 토큰
+        </label>
+        <div className="relative mt-2">
+          <KeyRound className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-moss" />
+          <input
+            id="sync-token"
+            type="password"
+            value={syncAccessToken}
+            onChange={(event) => setSyncAccessToken(event.target.value)}
+            placeholder="서버 피드백 조회와 워크스페이스 동기화에 필요"
+            className="w-full rounded-md border border-line bg-white py-3 pl-10 pr-3 text-sm text-ink outline-none focus:border-signal"
+          />
+        </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             onClick={saveToCloud}
@@ -255,7 +271,8 @@ export function SettingsPanel() {
         </div>
         {syncError ? <p className="mt-3 text-sm leading-6 text-red-700">{syncError}</p> : null}
         <p className="mt-3 text-sm leading-6 text-stone-600">
-          Railway 배포 후 생성된 주소 뒤에 <span className="font-semibold text-ink">/api</span>를 붙이면 웹앱과 Windows 앱이 같은 워크스페이스를 공유할 수 있습니다.
+          테스터는 피드백을 보낼 수 있지만, 서버 피드백 조회와 워크스페이스 동기화는 관리자 토큰이 있어야 가능합니다.
+          모델 API 키는 QARKO 로컬 저장소에 장기 저장하지 않고 Hermes 설정 저장 시 Hermes 보안 파일로 넘깁니다.
         </p>
       </section>
 

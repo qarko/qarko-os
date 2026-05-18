@@ -1,4 +1,4 @@
-import { CheckCircle2, KeyRound, PlugZap, Server, ShieldCheck, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, KeyRound, PlugZap, Server, ShieldCheck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { hermesProviderOptions } from "../../data/hermesProviders";
 import { useQarkoStore } from "../../store/useQarkoStore";
@@ -19,9 +19,12 @@ export function HermesOnboarding() {
     hermesConnection,
     hermesInstallMessage,
     hermesInstallStatus,
+    hermesAuthMessage,
+    hermesAuthStatus,
     hermesSetupOutput,
     hermesSetupProvider,
     installHermesDesktop,
+    loginHermesOAuthProvider,
     saveHermesGuidedSetup,
     showHermesOnboarding,
     testHermesRuntime,
@@ -53,6 +56,7 @@ export function HermesOnboarding() {
   const installing = hermesInstallStatus === "installing";
   const canSave = installed && hermesConnection.modelName.trim().length > 0;
   const isOauth = selectedProvider.authType === "oauth";
+  const loggingIn = hermesAuthStatus === "running";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4">
@@ -207,10 +211,20 @@ export function HermesOnboarding() {
                     </label>
                   ) : (
                     <div className="rounded-md border border-line bg-panel p-4 text-sm leading-6 text-stone-700">
-                      <p className="font-semibold text-ink">OAuth 로그인 준비 중</p>
+                      <p className="font-semibold text-ink">OAuth 로그인</p>
                       <p className="mt-1">
-                        이 제공자는 API 키 대신 장치 로그인 흐름을 사용합니다. 현재는 모델 값을 저장하고, 다음 개선에서 인증 코드와 브라우저 로그인까지 앱 안에 붙입니다.
+                        이 제공자는 API 키 대신 브라우저 로그인 흐름을 사용합니다. 버튼을 누르면 QARKO OS가 Hermes 로그인을 시작하고,
+                        필요한 경우 브라우저 인증 창이 열립니다.
                       </p>
+                      <button
+                        onClick={loginHermesOAuthProvider}
+                        disabled={!installed || loggingIn}
+                        className="mt-3 inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        {loggingIn ? "로그인 진행 중" : "OAuth 로그인 시작"}
+                      </button>
+                      <p className="mt-3 text-xs leading-5 text-stone-600">{hermesAuthMessage}</p>
                     </div>
                   )}
                   {selectedProvider.authType === "custom-endpoint" ? (

@@ -67,3 +67,10 @@ export const configureHermesGuidedSetup = async (setup: HermesGuidedSetup): Prom
   }
   return invoke<HermesCommandResult>("configure_hermes", { request: setup });
 };
+
+export const loginHermesProvider = async (provider: string): Promise<HermesCommandResult> => {
+  if (!hasTauriRuntime()) {
+    throw new Error("Hermes OAuth 로그인은 Windows 데스크톱 앱에서만 사용할 수 있습니다.");
+  }
+  return invoke<HermesCommandResult>("login_hermes_provider", { request: { provider } });
+};
