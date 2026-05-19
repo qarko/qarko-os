@@ -15,6 +15,21 @@ export interface HermesInstallCommand {
   script: string;
 }
 
+export interface HermesVerifiedDependency {
+  name: string;
+  version: string;
+  policy: string;
+}
+
+export interface HermesVerifiedInstallPlan {
+  channel: "verified";
+  label: string;
+  hermesCommit: string;
+  installScriptSha256: string;
+  allowUnverifiedLatest: boolean;
+  dependencies: HermesVerifiedDependency[];
+}
+
 export interface HermesGuidedSetup {
   provider: string;
   modelName: string;
@@ -28,16 +43,40 @@ export interface HermesCommandResult {
   output: string;
 }
 
-export const getHermesInstallCommand = (): HermesInstallCommand => {
-  const commit = "a0bd11d0227239674fe378ff8817f8f6129ef5a7";
-  const sha256 = "E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064";
+const hermesVerifiedInstallPlan: HermesVerifiedInstallPlan = {
+  channel: "verified",
+  label: "QARKO 고정 버전",
+  hermesCommit: "a0bd11d0227239674fe378ff8817f8f6129ef5a7",
+  installScriptSha256: "E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064",
+  allowUnverifiedLatest: false,
+  dependencies: [
+    {
+      name: "Hermes Agent",
+      version: "a0bd11d0227239674fe378ff8817f8f6129ef5a7",
+      policy: "QARKO가 지정한 Git commit으로 설치와 업데이트를 고정합니다.",
+    },
+    {
+      name: "Hermes Windows installer",
+      version: "SHA256 E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064",
+      policy: "다운로드 후 해시가 일치할 때만 실행합니다.",
+    },
+    {
+      name: "하위 런타임 의존성",
+      version: "Hermes installer managed",
+      policy: "현재는 Hermes 설치 스크립트가 요구하는 런타임을 따릅니다. 상용화 전에는 QARKO 번들 채널로 고정 대상을 넓힙니다.",
+    },
+  ],
+};
+
+const buildHermesVerifiedCommand = (): HermesInstallCommand => {
+  const { hermesCommit, installScriptSha256 } = hermesVerifiedInstallPlan;
   const script =
     "$ErrorActionPreference='Stop'; " +
     "$installer=Join-Path $env:TEMP 'qarko-hermes-install.ps1'; " +
-    `$url='https://raw.githubusercontent.com/NousResearch/hermes-agent/${commit}/scripts/install.ps1'; ` +
+    `$url='https://raw.githubusercontent.com/NousResearch/hermes-agent/${hermesCommit}/scripts/install.ps1'; ` +
     "Invoke-WebRequest -UseBasicParsing $url -OutFile $installer; " +
-    `$hash=(Get-FileHash -Algorithm SHA256 $installer).Hash.ToUpperInvariant(); if ($hash -ne '${sha256}') { throw 'Hermes installer hash mismatch' }; ` +
-    `& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -SkipSetup -NonInteractive -Commit '${commit}'`;
+    `$hash=(Get-FileHash -Algorithm SHA256 $installer).Hash.ToUpperInvariant(); if ($hash -ne '${installScriptSha256}') { throw 'Hermes installer hash mismatch' }; ` +
+    `& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -SkipSetup -NonInteractive -Commit '${hermesCommit}'`;
 
   return {
     program: "powershell.exe",
@@ -45,6 +84,12 @@ export const getHermesInstallCommand = (): HermesInstallCommand => {
     script,
   };
 };
+
+export const getHermesVerifiedInstallPlan = (): HermesVerifiedInstallPlan => hermesVerifiedInstallPlan;
+
+export const getHermesInstallCommand = (): HermesInstallCommand => buildHermesVerifiedCommand();
+
+export const getHermesUpdateCommand = (): HermesInstallCommand => buildHermesVerifiedCommand();
 
 const hasTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -63,6 +108,13 @@ export const startHermesInstall = async () => {
     throw new Error("Hermes 자동 설치는 Windows 데스크톱 앱에서만 사용할 수 있습니다.");
   }
   return invoke<string>("install_hermes");
+};
+
+export const updateHermesToVerifiedVersion = async () => {
+  if (!hasTauriRuntime()) {
+    throw new Error("Hermes 업데이트는 Windows 데스크톱 앱에서만 사용할 수 있습니다.");
+  }
+  return invoke<string>("update_hermes_verified");
 };
 
 export const configureHermesGuidedSetup = async (setup: HermesGuidedSetup): Promise<HermesCommandResult> => {

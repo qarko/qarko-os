@@ -5,6 +5,7 @@ import {
   getHermesDesktopStatus,
   loginHermesProvider,
   startHermesInstall,
+  updateHermesToVerifiedVersion,
 } from "../adapters/hermesDesktop";
 import { testHermesConnection } from "../adapters/hermesRuntime";
 import {
@@ -73,6 +74,8 @@ interface QarkoState {
   hermesSetupOutput: string;
   hermesAuthStatus: "idle" | "running" | "completed" | "error";
   hermesAuthMessage: string;
+  hermesUpdateStatus: "idle" | "updating" | "completed" | "error";
+  hermesUpdateMessage: string;
   showHermesOnboarding: boolean;
   selectProject: (projectId: string) => void;
   setView: (view: AppView) => void;
@@ -90,6 +93,7 @@ interface QarkoState {
   testHermesRuntime: () => Promise<void>;
   checkHermesInstall: () => Promise<void>;
   installHermesDesktop: () => Promise<void>;
+  updateHermesVerified: () => Promise<void>;
   updateHermesSetupProvider: (provider: string) => void;
   saveHermesGuidedSetup: () => Promise<void>;
   loginHermesOAuthProvider: () => Promise<void>;
@@ -280,6 +284,8 @@ export const useQarkoStore = create<QarkoState>()(
       hermesSetupOutput: "",
       hermesAuthStatus: "idle",
       hermesAuthMessage: "OAuth 제공자를 선택하면 QARKO OS 안에서 로그인 흐름을 시작할 수 있습니다.",
+      hermesUpdateStatus: "idle",
+      hermesUpdateMessage: "업데이트는 QARKO가 확인한 버전으로만 진행합니다. 새 버전 적용도 사용자가 직접 승인해야 시작됩니다.",
       showHermesOnboarding: true,
       selectProject: (projectId) => set({ selectedProjectId: projectId, view: "project" }),
       setView: (view) => set({ view }),
@@ -428,6 +434,33 @@ export const useQarkoStore = create<QarkoState>()(
             hermesInstallStatus: "error",
             hermesInstallMessage: error instanceof Error ? error.message : "Hermes 설치를 시작하지 못했습니다.",
             actionNotice: "Hermes 설치를 시작하지 못했습니다.",
+          });
+        }
+      },
+      updateHermesVerified: async () => {
+        set({
+          hermesInstallStatus: "installing",
+          hermesUpdateStatus: "updating",
+          hermesUpdateMessage: "QARKO 고정 버전으로 Hermes를 업데이트/복구하는 중입니다.",
+          hermesInstallMessage: "검증된 Hermes 버전으로 업데이트/복구하는 중입니다.",
+          actionNotice: "QARKO 고정 채널의 Hermes 버전으로 업데이트를 시작했습니다.",
+        });
+        try {
+          const message = await updateHermesToVerifiedVersion();
+          set({
+            hermesInstallStatus: "installed",
+            hermesUpdateStatus: "completed",
+            hermesUpdateMessage: message,
+            hermesInstallMessage: message,
+            actionNotice: "Hermes를 QARKO 고정 버전으로 맞췄습니다.",
+          });
+        } catch (error) {
+          set({
+            hermesInstallStatus: "error",
+            hermesUpdateStatus: "error",
+            hermesUpdateMessage: error instanceof Error ? error.message : "Hermes 업데이트/복구에 실패했습니다.",
+            hermesInstallMessage: error instanceof Error ? error.message : "Hermes 업데이트/복구에 실패했습니다.",
+            actionNotice: "Hermes 업데이트/복구에 실패했습니다.",
           });
         }
       },
@@ -653,6 +686,8 @@ export const useQarkoStore = create<QarkoState>()(
         hermesSetupOutput: "",
         hermesAuthStatus: state.hermesAuthStatus,
         hermesAuthMessage: state.hermesAuthMessage,
+        hermesUpdateStatus: state.hermesUpdateStatus,
+        hermesUpdateMessage: state.hermesUpdateMessage,
         showHermesOnboarding: state.showHermesOnboarding,
       }),
     }

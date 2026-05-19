@@ -1,5 +1,6 @@
 import { CheckCircle2, ExternalLink, KeyRound, PlugZap, Server, ShieldCheck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { getHermesVerifiedInstallPlan } from "../../adapters/hermesDesktop";
 import { hermesProviderOptions } from "../../data/hermesProviders";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import { StatusBadge } from "../ui/StatusBadge";
@@ -55,6 +56,7 @@ export function HermesOnboarding() {
     () => hermesProviderOptions.find((option) => option.id === hermesSetupProvider) ?? hermesProviderOptions[0],
     [hermesSetupProvider]
   );
+  const hermesInstallPlan = getHermesVerifiedInstallPlan();
 
   if (!showHermesOnboarding) return null;
 
@@ -117,7 +119,8 @@ export function HermesOnboarding() {
                   </div>
                   <p className="text-sm leading-6 text-stone-700">{hermesInstallMessage}</p>
                   <p className="mt-2 text-xs leading-5 text-stone-600">
-                    보안을 위해 설치 파일 단계에서 몰래 실행하지 않습니다. 아래 버튼을 누르면 검증된 Hermes 설치 스크립트와 고정된 Hermes commit으로 진행합니다.
+                    보안을 위해 설치 파일 단계에서 몰래 실행하지 않습니다. 아래 버튼을 누르면 {hermesInstallPlan.label}으로 설치하고,
+                    이후 업데이트도 설정의 업데이트 센터에서 사용자가 승인할 때만 진행합니다.
                   </p>
                   {hermesExecutablePath ? <p className="mt-2 break-all text-xs text-stone-500">{hermesExecutablePath}</p> : null}
                 </div>

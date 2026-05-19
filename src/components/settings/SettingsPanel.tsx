@@ -1,4 +1,5 @@
 import { CheckCircle2, CloudDownload, CloudUpload, KeyRound, PlugZap, RotateCcw, Save, Server, ShieldCheck } from "lucide-react";
+import { getHermesVerifiedInstallPlan } from "../../adapters/hermesDesktop";
 import { hermesProviderOptions } from "../../data/hermesProviders";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import { SectionHeader } from "../ui/SectionHeader";
@@ -16,6 +17,8 @@ export function SettingsPanel() {
     hermesSetupOutput,
     hermesSetupProvider,
     hermesStatus,
+    hermesUpdateMessage,
+    hermesUpdateStatus,
     checkHermesInstall,
     installHermesDesktop,
     loadFromCloud,
@@ -31,11 +34,20 @@ export function SettingsPanel() {
     syncError,
     syncStatus,
     updateHermesConnection,
+    updateHermesVerified,
     updateHermesSetupProvider,
   } = useQarkoStore();
   const isSyncing = syncStatus === "syncing";
   const isTestingHermes = hermesStatus === "testing";
   const hermesInstalled = hermesInstallStatus === "installed";
+  const hermesInstallPlan = getHermesVerifiedInstallPlan();
+  const updatingHermes = hermesUpdateStatus === "updating";
+  const changingHermesInstall = hermesInstallStatus === "installing" || updatingHermes;
+  const updateCenterMessage =
+    hermesUpdateStatus === "idle"
+      ? "업데이트는 QARKO가 확인한 버전으로만 진행합니다. 새 버전 적용도 사용자가 직접 승인해야 시작됩니다."
+      : hermesUpdateMessage;
+  const canUseUpdateCenter = hermesInstallStatus === "installed" || hermesUpdateStatus === "completed" || hermesUpdateStatus === "error";
 
   return (
     <div className="mx-auto max-w-5xl p-5 lg:p-8">
@@ -139,15 +151,15 @@ export function SettingsPanel() {
         </div>
         <p className="text-sm leading-6 text-stone-600">{hermesInstallMessage}</p>
         <p className="mt-2 text-xs leading-5 text-stone-600">
-          보안을 위해 설치 프로그램이 백그라운드에서 자동 설치하지 않습니다. 사용자가 이 버튼을 눌렀을 때만 검증된 설치 스크립트와 고정된 Hermes commit으로 진행합니다.
+          보안을 위해 설치 프로그램이 백그라운드에서 자동 설치하지 않습니다. 사용자가 이 버튼을 눌렀을 때만 QARKO가 확인한 설치 파일로 진행합니다.
         </p>
         {hermesExecutablePath ? <p className="mt-2 break-all text-xs text-stone-500">{hermesExecutablePath}</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">
-          <button onClick={checkHermesInstall} className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel">
+          <button onClick={checkHermesInstall} disabled={changingHermesInstall} className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-60">
             <CheckCircle2 className="h-4 w-4" />
             설치 상태 확인
           </button>
-          <button onClick={installHermesDesktop} className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss">
+          <button onClick={installHermesDesktop} disabled={changingHermesInstall} className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-60">
             <PlugZap className="h-4 w-4" />
             앱 안에서 Hermes 설치
           </button>
@@ -175,6 +187,57 @@ export function SettingsPanel() {
           </button>
         </div>
         {hermesSetupOutput ? <pre className="mt-3 max-h-32 overflow-auto rounded-md bg-panel p-3 text-xs leading-5 text-stone-600">{hermesSetupOutput}</pre> : null}
+      </section>
+
+      <section className="mt-5 rounded-md border border-line bg-white p-5 shadow-sm">
+        <SectionHeader title="업데이트 센터" eyebrow="Safe updates" />
+        <div className="space-y-4">
+          <div>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-signal" />
+              <StatusBadge
+                tone={hermesUpdateStatus === "error" ? "failed" : updatingHermes ? "running" : hermesUpdateStatus === "completed" ? "completed" : "planned"}
+                label={updatingHermes ? "업데이트 중" : hermesUpdateStatus === "completed" ? "확인된 버전 적용됨" : hermesUpdateStatus === "error" ? "오류" : "대기"}
+              />
+            </div>
+            <p className="text-sm leading-6 text-stone-600">
+              QARKO는 확인된 Hermes 버전만 설치하거나 복구합니다. 새 버전이 필요할 때도 사용자가 이 화면에서 직접 승인한 경우에만 진행합니다.
+            </p>
+            <p className="mt-3 rounded-md bg-panel p-3 text-sm leading-6 text-stone-700">{updateCenterMessage}</p>
+            {canUseUpdateCenter ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button onClick={updateHermesVerified} disabled={changingHermesInstall} className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-60">
+                  <CloudDownload className="h-4 w-4" />
+                  확인된 버전으로 맞추기
+                </button>
+              </div>
+            ) : (
+              <p className="mt-4 rounded-md border border-line bg-white p-3 text-sm leading-6 text-stone-600">
+                처음 설치는 위의 <span className="font-semibold text-ink">앱 안에서 Hermes 설치</span> 버튼으로 진행하세요. 설치가 끝나면 여기에서 업데이트와 복구를 관리할 수 있습니다.
+              </p>
+            )}
+            <p className="mt-3 text-xs leading-5 text-stone-500">
+              베타 기간에는 무작정 최신 버전을 따라가기보다 QARKO에서 확인한 버전으로 맞추는 방식이 더 안전합니다.
+            </p>
+          </div>
+          <details className="rounded-md border border-line bg-panel p-4 text-xs leading-5 text-stone-700">
+            <summary className="cursor-pointer text-sm font-semibold text-ink">고급 설치 정보 보기</summary>
+            <p className="mt-3 text-stone-600">
+              이 정보는 문제 해결이나 보안 검토 때만 확인하면 됩니다. 일반 사용자는 위 버튼만 사용해도 됩니다.
+            </p>
+            <p className="mt-3 break-all">Hermes commit: {hermesInstallPlan.hermesCommit}</p>
+            <p className="mt-2 break-all">Installer SHA256: {hermesInstallPlan.installScriptSha256}</p>
+            <div className="mt-3 grid gap-2 lg:grid-cols-3">
+              {hermesInstallPlan.dependencies.map((dependency) => (
+                <div key={dependency.name} className="rounded-md bg-white p-3">
+                  <p className="font-semibold text-ink">{dependency.name}</p>
+                  <p className="break-all text-stone-500">{dependency.version}</p>
+                  <p className="mt-1 text-stone-600">{dependency.policy}</p>
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
       </section>
 
       <section className="mt-5 rounded-md border border-line bg-white p-5 shadow-sm">

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -9,6 +10,7 @@ use std::os::windows::process::CommandExt;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const HERMES_INSTALL_COMMIT: &str = "a0bd11d0227239674fe378ff8817f8f6129ef5a7";
 const HERMES_INSTALL_SHA256: &str = "E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064";
+static HERMES_INSTALL_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,6 +117,23 @@ fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
     })
 }
 
+struct HermesInstallGuard;
+
+impl HermesInstallGuard {
+    fn acquire() -> Result<Self, String> {
+        HERMES_INSTALL_IN_PROGRESS
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .map(|_| HermesInstallGuard)
+            .map_err(|_| "Hermes 설치 또는 업데이트가 이미 진행 중입니다. 완료 후 다시 시도하세요.".to_string())
+    }
+}
+
+impl Drop for HermesInstallGuard {
+    fn drop(&mut self) {
+        HERMES_INSTALL_IN_PROGRESS.store(false, Ordering::Release);
+    }
+}
+
 #[tauri::command]
 fn hermes_status() -> HermesStatus {
     if let Some(path) = find_hermes_executable() {
@@ -141,6 +160,7 @@ fn hermes_status() -> HermesStatus {
 
 #[tauri::command]
 fn install_hermes() -> Result<String, String> {
+    let _guard = HermesInstallGuard::acquire()?;
     let result = run_hidden_command(Command::new("powershell.exe").args([
         "-NoProfile",
         "-ExecutionPolicy",
@@ -151,6 +171,24 @@ fn install_hermes() -> Result<String, String> {
 
     if result.ok {
         Ok("Hermes 설치가 완료되었습니다. 이제 모델 설정을 진행하세요.".to_string())
+    } else {
+        Err(if result.output.is_empty() { result.message } else { result.output })
+    }
+}
+
+#[tauri::command]
+fn update_hermes_verified() -> Result<String, String> {
+    let _guard = HermesInstallGuard::acquire()?;
+    let result = run_hidden_command(Command::new("powershell.exe").args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &powershell_install_script(),
+    ]))?;
+
+    if result.ok {
+        Ok("Hermes를 QARKO 검증 버전으로 업데이트/복구했습니다. 모델 설정을 다시 확인하세요.".to_string())
     } else {
         Err(if result.output.is_empty() { result.message } else { result.output })
     }
@@ -269,6 +307,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             hermes_status,
             install_hermes,
+            update_hermes_verified,
             configure_hermes,
             login_hermes_provider
         ])
