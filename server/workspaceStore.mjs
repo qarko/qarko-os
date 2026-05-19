@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { createSeedWorkspaceSnapshot } from './seedWorkspace.mjs';
 
 const requiredCollections = ['projects', 'approvals', 'artifacts', 'plugins'];
+const maxStoredFeedback = 500;
 
 const normalizeSnapshot = (snapshot) => ({
   ...snapshot,
@@ -37,7 +38,7 @@ const mergeFeedback = (current, incoming) => {
     if (!item || typeof item.id !== 'string' || seen.has(item.id)) return false;
     seen.add(item.id);
     return true;
-  });
+  }).slice(0, maxStoredFeedback);
 };
 
 export const createWorkspaceStore = ({ filePath } = {}) => {

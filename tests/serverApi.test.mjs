@@ -120,7 +120,9 @@ test('GET and POST /api/feedback collect tester feedback', async () => {
 
     assert.equal(saveResponse.status, 200);
     assert.equal(loadResponse.status, 200);
-    assert.equal(saved.feedback.length, 1);
+    assert.equal(saved.ok, true);
+    assert.equal(saved.acceptedCount, 1);
+    assert.equal(saved.feedback, undefined);
     assert.equal(loaded.feedback[0].message, entry.message);
   });
 });
@@ -213,4 +215,65 @@ test('feedback POST sends Discord notification when notifier is configured', asy
     await close(server);
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('feedback POST limits payload shape before saving and notifying', async () => {
+  const notifications = [];
+  const notifier = {
+    enabled: true,
+    notifyFeedback: async (entry) => {
+      notifications.push(entry);
+      return { ok: true, skipped: false };
+    },
+  };
+  const dir = await mkdtemp(join(tmpdir(), 'qarko-api-'));
+  const store = createWorkspaceStore({ filePath: join(dir, 'workspace.json') });
+  const server = createServer({ store, distDir: join(dir, 'dist'), discordNotifier: notifier });
+  const baseUrl = await listen(server);
+  try {
+    const response = await fetch(`${baseUrl}/api/feedback`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        feedback: Array.from({ length: 8 }, (_, index) => ({
+          id: `feedback-limit-${index}`,
+          area: 'not-real',
+          ease: 'not-real',
+          message: `${index} ${'x'.repeat(3000)}`,
+          testerContact: 'c'.repeat(300),
+        })),
+      }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.acceptedCount, 5);
+    assert.equal(body.feedback, undefined);
+    assert.equal(notifications.length, 5);
+    assert.equal(notifications[0].area, 'other');
+    assert.equal(notifications[0].ease, 'confusing');
+    assert.equal(notifications[0].message.length, 2000);
+    assert.equal(notifications[0].testerContact.length, 160);
+  } finally {
+    await close(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('feedback POST rejects oversized request bodies', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/feedback`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        feedback: [{ id: 'feedback-large', area: 'other', ease: 'blocked', message: 'x'.repeat(70 * 1024) }],
+      }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 413);
+    assert.equal(body.ok, false);
+    assert.match(body.error, /too large/i);
+  });
 });

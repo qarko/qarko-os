@@ -25,27 +25,15 @@ export function ApprovalCard({ approval }: ApprovalCardProps) {
         {approval.expectedResult}
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          disabled={!isPending}
-          onClick={() => resolveApproval(approval.id, "approved")}
-          className="inline-flex items-center gap-1 rounded-md bg-signal px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
-        >
+        <button disabled={!isPending} onClick={() => resolveApproval(approval.id, "approved")} className="inline-flex items-center gap-1 rounded-md bg-signal px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">
           <Check className="h-3.5 w-3.5" />
           승인
         </button>
-        <button
-          disabled={!isPending}
-          onClick={() => resolveApproval(approval.id, "revise")}
-          className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-ink disabled:opacity-40"
-        >
+        <button disabled={!isPending} onClick={() => resolveApproval(approval.id, "revise")} className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-ink disabled:opacity-40">
           <RotateCcw className="h-3.5 w-3.5" />
           수정
         </button>
-        <button
-          disabled={!isPending}
-          onClick={() => resolveApproval(approval.id, "cancelled")}
-          className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-danger disabled:opacity-40"
-        >
+        <button disabled={!isPending} onClick={() => resolveApproval(approval.id, "cancelled")} className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-danger disabled:opacity-40">
           <X className="h-3.5 w-3.5" />
           취소
         </button>

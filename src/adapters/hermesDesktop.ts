@@ -29,11 +29,15 @@ export interface HermesCommandResult {
 }
 
 export const getHermesInstallCommand = (): HermesInstallCommand => {
+  const commit = "a0bd11d0227239674fe378ff8817f8f6129ef5a7";
+  const sha256 = "E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064";
   const script =
     "$ErrorActionPreference='Stop'; " +
     "$installer=Join-Path $env:TEMP 'qarko-hermes-install.ps1'; " +
-    "Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1' -OutFile $installer; " +
-    "& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -SkipSetup -NonInteractive";
+    `$url='https://raw.githubusercontent.com/NousResearch/hermes-agent/${commit}/scripts/install.ps1'; ` +
+    "Invoke-WebRequest -UseBasicParsing $url -OutFile $installer; " +
+    `$hash=(Get-FileHash -Algorithm SHA256 $installer).Hash.ToUpperInvariant(); if ($hash -ne '${sha256}') { throw 'Hermes installer hash mismatch' }; ` +
+    `& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -SkipSetup -NonInteractive -Commit '${commit}'`;
 
   return {
     program: "powershell.exe",

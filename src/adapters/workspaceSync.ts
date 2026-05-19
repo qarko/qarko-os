@@ -86,6 +86,6 @@ export const sendFeedbackEntries = async (
     },
     body: JSON.stringify({ feedback }),
   });
-  const body = await readJsonResponse<{ feedback: FeedbackEntry[] }>(response);
-  return body.feedback;
+  await readJsonResponse<{ ok: boolean; acceptedCount: number }>(response);
+  return feedback;
 };

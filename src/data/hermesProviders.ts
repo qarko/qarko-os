@@ -29,7 +29,7 @@ export const hermesProviderOptions: HermesProviderOption[] = [
     defaultModel: "anthropic/claude-sonnet-4.5",
     defaultEndpoint: "https://api.anthropic.com",
     keyLabel: "Anthropic API Key",
-    summary: "Claude API 키를 직접 쓰는 환경에 맞습니다.",
+    summary: "Claude API 키를 직접 연결하는 환경에 맞습니다.",
     setupHint: "Anthropic Console에서 발급한 API 키를 입력하세요.",
   },
   {
@@ -49,7 +49,7 @@ export const hermesProviderOptions: HermesProviderOption[] = [
     defaultModel: "nous/hermes-4",
     defaultEndpoint: "",
     summary: "Nous 계정 OAuth 로그인으로 사용하는 흐름입니다.",
-    setupHint: "OAuth 로그인은 QARKO OS 안에서 안내하고, Hermes 인증 흐름과 연결합니다.",
+    setupHint: "QARKO OS가 Hermes 로그인 과정을 시작하고 완료 여부를 안내합니다.",
   },
   {
     id: "openai-codex",
@@ -57,8 +57,8 @@ export const hermesProviderOptions: HermesProviderOption[] = [
     authType: "oauth",
     defaultModel: "openai-codex/gpt-5.1-codex",
     defaultEndpoint: "",
-    summary: "OpenAI Codex/ChatGPT 계정 인증을 쓰는 흐름입니다.",
-    setupHint: "API 키가 아니라 장치 로그인 방식입니다. QARKO OS가 터미널 대신 단계별로 안내합니다.",
+    summary: "Codex/ChatGPT 계정 인증을 연결하는 흐름입니다.",
+    setupHint: "API 키가 아니라 브라우저 로그인 방식입니다.",
   },
   {
     id: "deepseek",
@@ -87,7 +87,7 @@ export const hermesProviderOptions: HermesProviderOption[] = [
     defaultModel: "local-model",
     defaultEndpoint: "http://localhost:11434/v1",
     keyLabel: "API Key",
-    summary: "Ollama, vLLM, LM Studio, 사내 게이트웨이처럼 OpenAI 호환 엔드포인트를 씁니다.",
+    summary: "Ollama, LM Studio, vLLM 같은 OpenAI 호환 엔드포인트를 연결합니다.",
     setupHint: "Base URL과 모델명을 직접 입력하세요. 키가 없으면 비워둘 수 있습니다.",
   },
 ];

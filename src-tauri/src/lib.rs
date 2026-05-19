@@ -7,6 +7,8 @@ use std::process::Command;
 use std::os::windows::process::CommandExt;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const HERMES_INSTALL_COMMIT: &str = "a0bd11d0227239674fe378ff8817f8f6129ef5a7";
+const HERMES_INSTALL_SHA256: &str = "E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,17 +53,41 @@ fn hermes_candidate_paths() -> Vec<PathBuf> {
 }
 
 fn find_hermes_executable() -> Option<PathBuf> {
-    hermes_candidate_paths()
-        .into_iter()
-        .find(|path| path.exists())
+    hermes_candidate_paths().into_iter().find(|path| path.exists())
 }
 
 fn powershell_install_script() -> String {
-    "$ErrorActionPreference='Stop'; \
-     $installer=Join-Path $env:TEMP 'qarko-hermes-install.ps1'; \
-     Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1' -OutFile $installer; \
-     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -SkipSetup -NonInteractive"
-        .to_string()
+    format!(
+        "$ErrorActionPreference='Stop'; \
+         $installer=Join-Path $env:TEMP 'qarko-hermes-install.ps1'; \
+         $url='https://raw.githubusercontent.com/NousResearch/hermes-agent/{}/scripts/install.ps1'; \
+         Invoke-WebRequest -UseBasicParsing $url -OutFile $installer; \
+         $hash=(Get-FileHash -Algorithm SHA256 $installer).Hash.ToUpperInvariant(); \
+         if ($hash -ne '{}') {{ throw \"Hermes installer hash mismatch\" }}; \
+         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -SkipSetup -NonInteractive -Commit '{}'",
+        HERMES_INSTALL_COMMIT,
+        HERMES_INSTALL_SHA256,
+        HERMES_INSTALL_COMMIT
+    )
+}
+
+fn redact_sensitive_output(value: String) -> String {
+    let mut redacted_lines = Vec::new();
+    for line in value.lines() {
+        let lower = line.to_lowercase();
+        if lower.contains("api_key")
+            || lower.contains("apikey")
+            || lower.contains("token")
+            || lower.contains("bearer ")
+            || line.contains("sk-")
+            || line.contains("sk-or-")
+        {
+            redacted_lines.push("[redacted sensitive output]");
+        } else {
+            redacted_lines.push(line);
+        }
+    }
+    redacted_lines.join("\n")
 }
 
 fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
@@ -76,11 +102,12 @@ fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
         .filter(|value| !value.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
+    let combined = redact_sensitive_output(combined);
 
     Ok(CommandResult {
         ok: output.status.success(),
         message: if output.status.success() {
-            "명령이 완료되었습니다.".to_string()
+            "명령을 완료했습니다.".to_string()
         } else {
             "명령 실행 중 오류가 발생했습니다.".to_string()
         },
@@ -114,19 +141,18 @@ fn hermes_status() -> HermesStatus {
 
 #[tauri::command]
 fn install_hermes() -> Result<String, String> {
-    let result = run_hidden_command(
-        Command::new("powershell.exe")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &powershell_install_script()])
-    )?;
+    let result = run_hidden_command(Command::new("powershell.exe").args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &powershell_install_script(),
+    ]))?;
 
     if result.ok {
         Ok("Hermes 설치가 완료되었습니다. 이제 모델 설정을 진행하세요.".to_string())
     } else {
-        Err(if result.output.is_empty() {
-            result.message
-        } else {
-            result.output
-        })
+        Err(if result.output.is_empty() { result.message } else { result.output })
     }
 }
 
@@ -163,19 +189,12 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
         });
     }
 
-    if let Some(key_name) = api_key_name_for_provider(request.provider.trim()) {
-        let api_key = request.api_key.trim();
-        if !api_key.is_empty() {
-            let key_result = run_hidden_command(Command::new(&hermes).args(["config", "set", key_name, api_key]))?;
-            outputs.push(key_result.output);
-            if !key_result.ok {
-                return Ok(CommandResult {
-                    ok: false,
-                    message: "Hermes API Key 저장에 실패했습니다.".to_string(),
-                    output: outputs.join("\n"),
-                });
-            }
-        }
+    if api_key_name_for_provider(request.provider.trim()).is_some() && !request.api_key.trim().is_empty() {
+        return Ok(CommandResult {
+            ok: false,
+            message: "보안을 위해 API 키를 Hermes CLI 명령 인자로 저장하지 않습니다. 키는 연결 테스트에만 임시 사용됩니다.".to_string(),
+            output: outputs.join("\n"),
+        });
     }
 
     if request.provider.trim() == "custom" {
@@ -192,17 +211,12 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             }
         }
 
-        let api_key = request.api_key.trim();
-        if !api_key.is_empty() {
-            let key_result = run_hidden_command(Command::new(&hermes).args(["config", "set", "model.api_key", api_key]))?;
-            outputs.push(key_result.output);
-            if !key_result.ok {
-                return Ok(CommandResult {
-                    ok: false,
-                    message: "Hermes custom API key 저장에 실패했습니다.".to_string(),
-                    output: outputs.join("\n"),
-                });
-            }
+        if !request.api_key.trim().is_empty() {
+            return Ok(CommandResult {
+                ok: false,
+                message: "보안을 위해 API 키를 Hermes CLI 명령 인자로 저장하지 않습니다. 키는 연결 테스트에만 임시 사용됩니다.".to_string(),
+                output: outputs.join("\n"),
+            });
         }
     }
 
@@ -226,15 +240,13 @@ fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, S
         _ => return Err("이 제공자는 QARKO OS OAuth 로그인에서 아직 지원하지 않습니다.".to_string()),
     };
 
-    let result = run_hidden_command(
-        Command::new(&hermes).args([
-            "login",
-            "--provider",
-            allowed_provider,
-            "--timeout",
-            "180",
-        ])
-    )?;
+    let result = run_hidden_command(Command::new(&hermes).args([
+        "login",
+        "--provider",
+        allowed_provider,
+        "--timeout",
+        "180",
+    ]))?;
 
     if result.ok {
         Ok(CommandResult {

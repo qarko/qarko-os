@@ -19,6 +19,7 @@ export function SettingsPanel() {
     checkHermesInstall,
     installHermesDesktop,
     loadFromCloud,
+    openHermesOnboarding,
     resetWorkspace,
     saveHermesGuidedSetup,
     saveToCloud,
@@ -42,7 +43,7 @@ export function SettingsPanel() {
         <p className="text-sm font-semibold uppercase tracking-normal text-moss">Settings</p>
         <h1 className="mt-1 text-3xl font-bold text-ink">QARKO OS 설정</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-          MVP에서는 로컬 저장, Hermes mock 상태, 초기화 기능을 먼저 제공합니다.
+          Hermes 연결, 피드백 동기화, 로컬 저장 상태를 관리합니다.
         </p>
       </div>
 
@@ -54,7 +55,7 @@ export function SettingsPanel() {
             <StatusBadge tone="completed" label="켜짐" />
           </div>
           <p className="text-sm leading-6 text-stone-600">
-            프로젝트, 승인 상태, 플러그인 상태, 실행 로그가 현재 브라우저에 저장됩니다. 다음 단계에서는 Tauri/SQLite 저장소로 옮길 수 있습니다.
+            프로젝트, 승인 상태, 플러그인, 실행 로그가 이 PC에 저장됩니다. 모델 API 키는 장기 저장하지 않습니다.
           </p>
         </section>
 
@@ -64,15 +65,7 @@ export function SettingsPanel() {
             <Server className="h-4 w-4 text-signal" />
             <StatusBadge
               tone={hermesStatus === "connected" ? "connected" : hermesStatus === "error" ? "failed" : "mock"}
-              label={
-                hermesStatus === "connected"
-                  ? "연결됨"
-                  : hermesStatus === "testing"
-                    ? "확인 중"
-                    : hermesStatus === "error"
-                      ? "오류"
-                      : "설정 필요"
-              }
+              label={hermesStatus === "connected" ? "연결됨" : hermesStatus === "testing" ? "확인 중" : hermesStatus === "error" ? "오류" : "설정 필요"}
             />
           </div>
           <p className="text-sm leading-6 text-stone-600">
@@ -84,39 +77,30 @@ export function SettingsPanel() {
       <section className="mt-5 rounded-md border border-line bg-white p-5 shadow-sm">
         <SectionHeader title="Hermes 런타임 설정" eyebrow="Agent runtime" />
         <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
-          <div>
-            <label className="block text-sm font-semibold text-ink" htmlFor="hermes-endpoint">
-              API 주소
-            </label>
+          <label className="block text-sm font-semibold text-ink">
+            API 주소
             <input
-              id="hermes-endpoint"
               value={hermesConnection.endpoint}
               onChange={(event) => updateHermesConnection({ endpoint: event.target.value })}
               placeholder="http://localhost:11434/v1"
               className="mt-2 w-full rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
             />
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-ink" htmlFor="hermes-model">
-              모델
-            </label>
+          </label>
+          <label className="block text-sm font-semibold text-ink">
+            모델
             <input
-              id="hermes-model"
               value={hermesConnection.modelName}
               onChange={(event) => updateHermesConnection({ modelName: event.target.value })}
               placeholder="hermes-3"
               className="mt-2 w-full rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
             />
-          </div>
+          </label>
         </div>
-        <label className="mt-4 block text-sm font-semibold text-ink" htmlFor="hermes-key">
+        <label className="mt-4 block text-sm font-semibold text-ink">
           API Key
-        </label>
-        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-          <div className="relative min-w-0 flex-1">
+          <div className="relative mt-2">
             <KeyRound className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-moss" />
             <input
-              id="hermes-key"
               type="password"
               value={hermesConnection.apiKey}
               onChange={(event) => updateHermesConnection({ apiKey: event.target.value })}
@@ -124,22 +108,23 @@ export function SettingsPanel() {
               className="w-full rounded-md border border-line bg-white py-3 pl-10 pr-3 text-sm text-ink outline-none focus:border-signal"
             />
           </div>
-          <button
-            onClick={testHermesRuntime}
-            disabled={isTestingHermes}
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <span className="mt-2 block text-xs font-normal leading-5 text-stone-500">
+            API 키는 저장하지 않고 연결 테스트 요청에만 임시로 사용합니다.
+          </span>
+        </label>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button onClick={testHermesRuntime} disabled={isTestingHermes} className="inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-60">
             <PlugZap className="h-4 w-4" />
             연결 테스트
+          </button>
+          <button onClick={openHermesOnboarding} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel">
+            <ShieldCheck className="h-4 w-4" />
+            설정 마법사 열기
           </button>
         </div>
         <div className="mt-4 rounded-md bg-panel p-3 text-sm leading-6 text-stone-700">
           {hermesMessage}
-          {hermesAvailableModels.length > 0 ? (
-            <span className="mt-2 block text-xs text-stone-500">
-              감지된 모델: {hermesAvailableModels.slice(0, 5).join(", ")}
-            </span>
-          ) : null}
+          {hermesAvailableModels.length > 0 ? <span className="mt-2 block text-xs text-stone-500">감지된 모델: {hermesAvailableModels.slice(0, 5).join(", ")}</span> : null}
         </div>
       </section>
 
@@ -153,19 +138,16 @@ export function SettingsPanel() {
           />
         </div>
         <p className="text-sm leading-6 text-stone-600">{hermesInstallMessage}</p>
+        <p className="mt-2 text-xs leading-5 text-stone-600">
+          보안을 위해 설치 프로그램이 백그라운드에서 자동 설치하지 않습니다. 사용자가 이 버튼을 눌렀을 때만 검증된 설치 스크립트와 고정된 Hermes commit으로 진행합니다.
+        </p>
         {hermesExecutablePath ? <p className="mt-2 break-all text-xs text-stone-500">{hermesExecutablePath}</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            onClick={checkHermesInstall}
-            className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel"
-          >
+          <button onClick={checkHermesInstall} className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel">
             <CheckCircle2 className="h-4 w-4" />
             설치 상태 확인
           </button>
-          <button
-            onClick={installHermesDesktop}
-            className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss"
-          >
+          <button onClick={installHermesDesktop} className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss">
             <PlugZap className="h-4 w-4" />
             앱 안에서 Hermes 설치
           </button>
@@ -173,46 +155,23 @@ export function SettingsPanel() {
         <div className="mt-4 grid gap-3 lg:grid-cols-[180px_1fr_1fr]">
           <label className="grid gap-2 text-sm font-semibold text-ink">
             제공자
-            <select
-              value={hermesSetupProvider}
-              onChange={(event) => updateHermesSetupProvider(event.target.value)}
-              className="rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
-            >
-              {hermesProviderOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
+            <select value={hermesSetupProvider} onChange={(event) => updateHermesSetupProvider(event.target.value)} className="rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal">
+              {hermesProviderOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
             </select>
           </label>
           <label className="grid gap-2 text-sm font-semibold text-ink">
             모델명
-            <input
-              value={hermesConnection.modelName}
-              onChange={(event) => updateHermesConnection({ modelName: event.target.value })}
-              placeholder="openrouter/anthropic/claude-sonnet-4"
-              className="rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
-            />
+            <input value={hermesConnection.modelName} onChange={(event) => updateHermesConnection({ modelName: event.target.value })} placeholder="openrouter/anthropic/claude-sonnet-4.5" className="rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal" />
           </label>
           <label className="grid gap-2 text-sm font-semibold text-ink">
             API Key
-            <input
-              type="password"
-              value={hermesConnection.apiKey}
-              onChange={(event) => updateHermesConnection({ apiKey: event.target.value })}
-              placeholder="필요한 경우 입력"
-              className="rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
-            />
+            <input type="password" value={hermesConnection.apiKey} onChange={(event) => updateHermesConnection({ apiKey: event.target.value })} placeholder="필요한 경우 입력" className="rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal" />
           </label>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            onClick={saveHermesGuidedSetup}
-            disabled={!hermesInstalled}
-            className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          <button onClick={saveHermesGuidedSetup} disabled={!hermesInstalled} className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50">
             <ShieldCheck className="h-4 w-4" />
-            Hermes 설정 저장
+            모델 설정 저장
           </button>
         </div>
         {hermesSetupOutput ? <pre className="mt-3 max-h-32 overflow-auto rounded-md bg-panel p-3 text-xs leading-5 text-stone-600">{hermesSetupOutput}</pre> : null}
@@ -227,64 +186,34 @@ export function SettingsPanel() {
             label={syncStatus === "syncing" ? "동기화 중" : syncStatus === "synced" ? "연결됨" : syncStatus === "error" ? "오류" : "대기"}
           />
         </div>
-        <label className="block text-sm font-semibold text-ink" htmlFor="sync-endpoint">
+        <label className="block text-sm font-semibold text-ink">
           API 주소
+          <input value={syncEndpoint} onChange={(event) => setSyncEndpoint(event.target.value)} placeholder="/api 또는 https://qarko-os.up.railway.app/api" className="mt-2 w-full rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal" />
         </label>
-        <input
-          id="sync-endpoint"
-          value={syncEndpoint}
-          onChange={(event) => setSyncEndpoint(event.target.value)}
-          placeholder="/api 또는 https://qarko-os.up.railway.app/api"
-          className="mt-2 w-full rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal"
-        />
-        <label className="mt-4 block text-sm font-semibold text-ink" htmlFor="sync-token">
+        <label className="mt-4 block text-sm font-semibold text-ink">
           관리자 토큰
+          <div className="relative mt-2">
+            <KeyRound className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-moss" />
+            <input type="password" value={syncAccessToken} onChange={(event) => setSyncAccessToken(event.target.value)} placeholder="서버 피드백 조회와 워크스페이스 동기화에 필요" className="w-full rounded-md border border-line bg-white py-3 pl-10 pr-3 text-sm text-ink outline-none focus:border-signal" />
+          </div>
         </label>
-        <div className="relative mt-2">
-          <KeyRound className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-moss" />
-          <input
-            id="sync-token"
-            type="password"
-            value={syncAccessToken}
-            onChange={(event) => setSyncAccessToken(event.target.value)}
-            placeholder="서버 피드백 조회와 워크스페이스 동기화에 필요"
-            className="w-full rounded-md border border-line bg-white py-3 pl-10 pr-3 text-sm text-ink outline-none focus:border-signal"
-          />
-        </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            onClick={saveToCloud}
-            disabled={isSyncing}
-            className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <button onClick={saveToCloud} disabled={isSyncing} className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-60">
             <CloudUpload className="h-4 w-4" />
             현재 상태 저장
           </button>
-          <button
-            onClick={loadFromCloud}
-            disabled={isSyncing}
-            className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <button onClick={loadFromCloud} disabled={isSyncing} className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-60">
             <CloudDownload className="h-4 w-4" />
             서버에서 불러오기
           </button>
         </div>
         {syncError ? <p className="mt-3 text-sm leading-6 text-red-700">{syncError}</p> : null}
-        <p className="mt-3 text-sm leading-6 text-stone-600">
-          테스터는 피드백을 보낼 수 있지만, 서버 피드백 조회와 워크스페이스 동기화는 관리자 토큰이 있어야 가능합니다.
-          모델 API 키는 QARKO 로컬 저장소에 장기 저장하지 않고 Hermes 설정 저장 시 Hermes 보안 파일로 넘깁니다.
-        </p>
       </section>
 
       <section className="mt-5 rounded-md border border-line bg-white p-5 shadow-sm">
         <SectionHeader title="워크스페이스 초기화" eyebrow="Reset" />
-        <p className="mb-4 text-sm leading-6 text-stone-600">
-          테스트 중 만든 프로젝트와 처리한 승인 상태를 샘플 데이터로 되돌립니다.
-        </p>
-        <button
-          onClick={resetWorkspace}
-          className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel"
-        >
+        <p className="mb-4 text-sm leading-6 text-stone-600">테스트 중 만든 프로젝트와 처리한 승인 상태를 샘플 데이터로 되돌립니다.</p>
+        <button onClick={resetWorkspace} className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel">
           <RotateCcw className="h-4 w-4" />
           샘플 상태로 초기화
         </button>

@@ -90,6 +90,28 @@ test('workspace store appends feedback without replacing existing entries', asyn
   }
 });
 
+test('workspace store caps stored feedback to the newest 500 entries', async () => {
+  const { filePath, cleanup } = await makeTempStore();
+  try {
+    const store = createWorkspaceStore({ filePath });
+    const entries = Array.from({ length: 505 }, (_, index) => ({
+      id: `feedback-cap-${index}`,
+      area: 'other',
+      ease: 'easy',
+      message: `Feedback ${index}`,
+      createdAt: '2026-05-19T00:00:00',
+    }));
+
+    const feedback = await store.appendFeedback(entries);
+
+    assert.equal(feedback.length, 500);
+    assert.equal(feedback[0].id, 'feedback-cap-0');
+    assert.equal(feedback[499].id, 'feedback-cap-499');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('workspace store rejects snapshots missing required collections', async () => {
   const { filePath, cleanup } = await makeTempStore();
   try {

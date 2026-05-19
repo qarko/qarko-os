@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src 'self' https://qarko-os-production.up.railway.app http://localhost:* http://127.0.0.1:*; img-src 'self' data: asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {
@@ -36,7 +36,6 @@
     ],
     "windows": {
       "nsis": {
-        "installerHooks": "./windows/hermes-hooks.nsh",
         "installMode": "currentUser"
       }
     }
