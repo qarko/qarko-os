@@ -6,8 +6,12 @@ const productionApiEndpoint = "https://qarko-os-production.up.railway.app/api";
 const isRelativeApiSafe = () => {
   if (typeof window === "undefined") return true;
 
-  const host = window.location.host;
-  return host.startsWith("127.0.0.1") || host.startsWith("localhost") || host.endsWith(".railway.app");
+  const host = window.location.hostname.toLowerCase();
+  return (
+    host === "127.0.0.1" ||
+    host === "localhost" ||
+    host === "qarko-os-production.up.railway.app"
+  );
 };
 
 export const getDefaultSyncEndpoint = () => {
@@ -22,7 +26,28 @@ const normalizeEndpoint = (endpoint: string) => {
   return value === "/api" && !isRelativeApiSafe() ? productionApiEndpoint : value;
 };
 
+export const isTrustedSyncEndpoint = (endpoint: string) => {
+  const value = normalizeEndpoint(endpoint);
+  if (value === "/api") return true;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol === "https:" && host === "qarko-os-production.up.railway.app") return true;
+    if (url.protocol === "http:" && (host === "127.0.0.1" || host === "localhost")) return true;
+    return false;
+  } catch {
+    return false;
+  }
+};
+
+const assertTrustedEndpoint = (endpoint: string) => {
+  if (!isTrustedSyncEndpoint(endpoint)) {
+    throw new Error("클라우드 동기화 주소는 /api, Railway HTTPS 주소, 또는 로컬 개발 주소만 사용할 수 있습니다.");
+  }
+};
+
 const makeApiUrl = (endpoint: string, path: string) => {
+  assertTrustedEndpoint(endpoint);
   const base = trimTrailingSlash(normalizeEndpoint(endpoint));
   return `${base}${path}`;
 };

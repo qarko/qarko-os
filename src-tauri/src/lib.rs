@@ -1,8 +1,13 @@
+use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
-use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -11,6 +16,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 const HERMES_INSTALL_COMMIT: &str = "a0bd11d0227239674fe378ff8817f8f6129ef5a7";
 const HERMES_INSTALL_SHA256: &str = "E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064";
 static HERMES_INSTALL_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+static HERMES_PROMPT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +42,15 @@ struct HermesLoginRequest {
     provider: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HermesOneShotRequest {
+    prompt: String,
+    model_name: String,
+    provider: String,
+    api_key: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CommandResult {
@@ -56,6 +71,75 @@ fn hermes_candidate_paths() -> Vec<PathBuf> {
 
 fn find_hermes_executable() -> Option<PathBuf> {
     hermes_candidate_paths().into_iter().find(|path| path.exists())
+}
+
+fn qarko_local_app_dir() -> PathBuf {
+    env::var("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| env::temp_dir())
+        .join("QARKO OS")
+}
+
+fn hermes_verification_marker_path() -> PathBuf {
+    qarko_local_app_dir().join("hermes-verified-install.txt")
+}
+
+fn canonical_path_text(path: &PathBuf) -> String {
+    fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_string()
+}
+
+fn file_sha256_hex(path: &PathBuf) -> Result<String, String> {
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let digest = Sha256::digest(&bytes);
+    Ok(format!("{:X}", digest))
+}
+
+fn write_hermes_verified_marker() -> Result<(), String> {
+    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent 실행 파일을 찾지 못했습니다.".to_string())?;
+    let exe_hash = file_sha256_hex(&hermes)?;
+    let marker_path = hermes_verification_marker_path();
+    if let Some(parent) = marker_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(
+        marker_path,
+        format!(
+            "commit={}\ninstaller_sha256={}\nexe={}\nexe_sha256={}\n",
+            HERMES_INSTALL_COMMIT,
+            HERMES_INSTALL_SHA256,
+            canonical_path_text(&hermes),
+            exe_hash
+        ),
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn hermes_verified_for_execution(path: &PathBuf) -> bool {
+    let marker_path = hermes_verification_marker_path();
+    let marker = match fs::read_to_string(&marker_path) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    if !marker.contains(HERMES_INSTALL_COMMIT) || !marker.contains(&canonical_path_text(path)) {
+        return false;
+    }
+    let current_hash = match file_sha256_hex(path) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    if !marker.contains(&format!("exe_sha256={}", current_hash)) {
+        return false;
+    }
+
+    let marker_modified = fs::metadata(&marker_path).and_then(|metadata| metadata.modified());
+    let exe_modified = fs::metadata(path).and_then(|metadata| metadata.modified());
+    match (marker_modified, exe_modified) {
+        (Ok(marker_time), Ok(exe_time)) => marker_time >= exe_time,
+        _ => false,
+    }
 }
 
 fn powershell_install_script() -> String {
@@ -117,6 +201,75 @@ fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
     })
 }
 
+fn command_result_from_output(status_success: bool, stdout: &[u8], stderr: &[u8]) -> CommandResult {
+    let stdout = String::from_utf8_lossy(stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(stderr).trim().to_string();
+    let combined = [stdout.as_str(), stderr.as_str()]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let combined = redact_sensitive_output(combined);
+
+    CommandResult {
+        ok: status_success,
+        message: if status_success {
+            "명령을 완료했습니다.".to_string()
+        } else {
+            "명령 실행 중 오류가 발생했습니다.".to_string()
+        },
+        output: combined,
+    }
+}
+
+fn run_hidden_command_with_timeout(command: &mut Command, timeout: Duration) -> Result<CommandResult, String> {
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let start = Instant::now();
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let mut stdout = child.stdout.take().ok_or_else(|| "stdout pipe를 열지 못했습니다.".to_string())?;
+    let mut stderr = child.stderr.take().ok_or_else(|| "stderr pipe를 열지 못했습니다.".to_string())?;
+    let stdout_handle = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stdout.read_to_end(&mut buffer);
+        buffer
+    });
+    let stderr_handle = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stderr.read_to_end(&mut buffer);
+        buffer
+    });
+
+    loop {
+        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+            let stdout = stdout_handle.join().unwrap_or_default();
+            let stderr = stderr_handle.join().unwrap_or_default();
+            return Ok(command_result_from_output(status.success(), &stdout, &stderr));
+        }
+        if start.elapsed() >= timeout {
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &child.id().to_string(), "/T", "/F"])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_handle.join();
+            let _ = stderr_handle.join();
+            return Ok(CommandResult {
+                ok: false,
+                message: "Hermes 실행 시간이 초과되었습니다.".to_string(),
+                output: "Hermes 실행이 3분 안에 끝나지 않아 중단했습니다. 인증 상태나 네트워크를 확인한 뒤 다시 시도하세요.".to_string(),
+            });
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
 struct HermesInstallGuard;
 
 impl HermesInstallGuard {
@@ -168,6 +321,9 @@ fn install_hermes() -> Result<String, String> {
         "-Command",
         &powershell_install_script(),
     ]))?;
+    if result.ok {
+        write_hermes_verified_marker()?;
+    }
 
     if result.ok {
         Ok("Hermes 설치가 완료되었습니다. 이제 모델 설정을 진행하세요.".to_string())
@@ -186,6 +342,9 @@ fn update_hermes_verified() -> Result<String, String> {
         "-Command",
         &powershell_install_script(),
     ]))?;
+    if result.ok {
+        write_hermes_verified_marker()?;
+    }
 
     if result.ok {
         Ok("Hermes를 QARKO 검증 버전으로 업데이트/복구했습니다. 모델 설정을 다시 확인하세요.".to_string())
@@ -369,6 +528,88 @@ fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, S
     }
 }
 
+#[tauri::command]
+fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, String> {
+    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent가 아직 설치되지 않았습니다.".to_string())?;
+    if !hermes_verified_for_execution(&hermes) {
+        return Err("Hermes 실행 파일이 QARKO 검증 설치 상태와 일치하지 않습니다. 설정 마법사에서 검증 버전 복구/업데이트를 먼저 실행하세요.".to_string());
+    }
+    let prompt = request.prompt.trim();
+    let model = request.model_name.trim();
+    let provider = request.provider.trim();
+    let provider_config = hermes_provider_config(provider)
+        .ok_or_else(|| "지원하지 않는 Hermes 제공자입니다.".to_string())?;
+
+    let api_key = request.api_key.trim();
+    if api_key_name_for_provider(provider).is_some() && api_key.is_empty() {
+        return Err("API 키 방식 모델은 실행 전에 키를 입력해야 합니다. QARKO OS는 보안을 위해 API 키를 저장하지 않으므로 앱을 다시 열면 다시 입력하세요.".to_string());
+    }
+
+    if prompt.is_empty() {
+        return Err("Hermes에 보낼 작업 내용이 비어 있습니다.".to_string());
+    }
+    if prompt.len() > 12000 {
+        return Err("작업 내용이 너무 깁니다. 프로젝트 목표를 조금 줄인 뒤 다시 실행하세요.".to_string());
+    }
+
+    let runtime_dir = qarko_local_app_dir().join("runtime");
+    fs::create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let prompt_path = runtime_dir.join(format!(
+        "qarko-hermes-prompt-{}-{}-{}.txt",
+        std::process::id(),
+        HERMES_PROMPT_COUNTER.fetch_add(1, Ordering::Relaxed),
+        now_nanos
+    ));
+    fs::write(&prompt_path, prompt).map_err(|error| error.to_string())?;
+    let query = format!(
+        "Read the local task file at this exact path and follow its instructions. File: {}",
+        prompt_path.to_string_lossy()
+    );
+
+    let mut command = Command::new(&hermes);
+    if !api_key.is_empty() {
+        if let Some(env_name) = api_key_name_for_provider(provider) {
+            command.env(env_name, api_key);
+        }
+    }
+    command.args([
+        "chat",
+        "-q",
+        query.as_str(),
+        "-Q",
+        "--max-turns",
+        "3",
+        "--provider",
+        provider_config.provider,
+        "--source",
+        "qarko-os",
+    ]);
+    if !model.is_empty() {
+        command.args(["--model", model]);
+    }
+
+    let result = run_hidden_command_with_timeout(&mut command, Duration::from_secs(180));
+    let _ = fs::remove_file(prompt_path);
+    let result = result?;
+    if result.ok {
+        Ok(CommandResult {
+            ok: true,
+            message: "Hermes가 MVP 실행 초안을 생성했습니다.".to_string(),
+            output: result.output,
+        })
+    } else {
+        Ok(CommandResult {
+            ok: false,
+            message: "Hermes 실행에 실패했습니다.".to_string(),
+            output: result.output,
+        })
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -377,7 +618,8 @@ pub fn run() {
             install_hermes,
             update_hermes_verified,
             configure_hermes,
-            login_hermes_provider
+            login_hermes_provider,
+            run_hermes_oneshot
         ])
         .run(tauri::generate_context!())
         .expect("error while running QARKO OS");

@@ -3,13 +3,16 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import {
   configureHermesGuidedSetup,
   getHermesDesktopStatus,
+  hasTauriRuntime,
   loginHermesProvider,
+  runHermesBusinessStep,
   startHermesInstall,
   updateHermesToVerifiedVersion,
 } from "../adapters/hermesDesktop";
 import { testHermesConnection } from "../adapters/hermesRuntime";
 import {
   getDefaultSyncEndpoint,
+  isTrustedSyncEndpoint,
   loadFeedbackEntries,
   loadWorkspaceSnapshot,
   saveWorkspaceSnapshot,
@@ -42,6 +45,7 @@ import type {
   Plugin,
   Project,
   ReviewNote,
+  Run,
   SyncStatus,
   WorkspaceSnapshot,
 } from "../types/qarko";
@@ -56,7 +60,7 @@ interface QarkoState {
   plugins: Plugin[];
   feedback: FeedbackEntry[];
   reviewNotes: ReviewNote[];
-  activeRun: typeof activeRun;
+  activeRun: Run;
   actionNotice: string;
   automationPolicies: typeof automationPolicies;
   syncEndpoint: string;
@@ -83,7 +87,7 @@ interface QarkoState {
   setAutomationMode: (mode: AutomationMode) => void;
   resolveApproval: (approvalId: string, decision: ApprovalDecision) => void;
   togglePlugin: (pluginId: string) => void;
-  runNextStep: () => void;
+  runNextStep: () => Promise<void>;
   resetWorkspace: () => void;
   setSyncEndpoint: (endpoint: string) => void;
   setSyncAccessToken: (token: string) => void;
@@ -252,20 +256,71 @@ const mergeFeedbackEntries = (local: FeedbackEntry[], remote: FeedbackEntry[]) =
   });
 };
 
+const emptyRun: Run = {
+  id: "run-empty",
+  projectId: "",
+  title: "MVP 실행 대기",
+  activeRoleName: "QARKO OS",
+  modelName: "Hermes 연결 필요",
+  status: "planned",
+  logs: [],
+  outputPreview: "프로젝트를 만들고 Hermes를 연결하면 여기에서 실제 MVP 실행 결과를 확인할 수 있습니다.",
+  stepCount: 0,
+};
+
+const buildRunForProject = (project: Project): Run => ({
+  id: `run-${project.id}`,
+  projectId: project.id,
+  title: `${project.name} MVP 실행`,
+  activeRoleName: "Chief of Staff",
+  modelName: "Hermes 연결 필요",
+  status: "planned",
+  logs: [
+    {
+      id: `log-${project.id}-start`,
+      timestamp: "now",
+      roleName: "QARKO OS",
+      message: "프로젝트가 생성되었습니다. Hermes 연결 후 다음 단계 실행을 누르면 실제 MVP 초안을 생성합니다.",
+      status: "planned",
+    },
+  ],
+  outputPreview: "아직 생성된 산출물이 없습니다. 오른쪽 Live 패널에서 다음 단계 실행을 눌러 시작하세요.",
+  stepCount: 0,
+});
+
+const buildMvpPrompt = (project: Project, run: Run) => [
+  "너는 QARKO OS의 1인 AI 회사 운영 에이전트다.",
+  "사용자가 실제 베타 테스트에서 MVP 하나를 만들 수 있도록 바로 실행 가능한 결과를 한국어로 작성해라.",
+  "",
+  `프로젝트명: ${project.name}`,
+  `아이디어: ${project.idea}`,
+  `목표: ${project.goal.title}`,
+  `성공 기준: ${project.goal.metric}`,
+  `자동화 모드: ${project.automationMode}`,
+  `현재 단계: ${run.stepCount + 1}`,
+  "",
+  "출력 형식:",
+  "## 오늘 만들 MVP",
+  "## 3단계 실행 계획",
+  "## 바로 쓸 수 있는 초안",
+  "## 확인해야 할 리스크",
+  "## 다음 버튼을 눌렀을 때 이어갈 작업",
+].join("\n");
+
 export const useQarkoStore = create<QarkoState>()(
   persist(
     (set, get) => ({
       workspace,
-      projects: initialProjects,
-      selectedProjectId: initialProjects[0].id,
-      view: "workspace",
-      approvals: initialApprovals,
-      artifacts,
+      projects: [],
+      selectedProjectId: "",
+      view: "new-project",
+      approvals: [],
+      artifacts: [],
       plugins: initialPlugins,
       feedback: [],
       reviewNotes: [],
-      activeRun,
-      actionNotice: "로컬 저장이 켜져 있습니다. 프로젝트, 승인, 플러그인, 피드백 상태가 이 PC에 저장됩니다.",
+      activeRun: emptyRun,
+      actionNotice: "베타 테스트를 시작하려면 먼저 본인의 사업 아이디어로 새 프로젝트를 만드세요.",
       automationPolicies,
       syncEndpoint: getDefaultSyncEndpoint(),
       syncAccessToken: "",
@@ -296,7 +351,8 @@ export const useQarkoStore = create<QarkoState>()(
             projects: [project, ...state.projects],
             selectedProjectId: project.id,
             view: "project",
-            actionNotice: `"${project.name}" 프로젝트를 만들고 로컬에 저장했습니다.`,
+            activeRun: buildRunForProject(project),
+            actionNotice: `"${project.name}" 프로젝트를 만들었습니다. Hermes 연결 후 오른쪽 Live 패널에서 실제 MVP 초안을 생성하세요.`,
           };
         }),
       setAutomationMode: (mode) =>
@@ -324,46 +380,142 @@ export const useQarkoStore = create<QarkoState>()(
             actionNotice: plugin ? `${plugin.name} 플러그인을 ${nextEnabled ? "활성화" : "비활성화"}했습니다.` : "플러그인 상태를 변경했습니다.",
           };
         }),
-      runNextStep: () =>
-        set((state) => {
-          const nextStep = state.activeRun.stepCount + 1;
-          const hermesConnected = state.hermesStatus === "connected";
-          return {
-            activeRun: {
-              ...state.activeRun,
-              stepCount: nextStep,
-              modelName: hermesConnected ? state.hermesConnection.modelName || state.activeRun.modelName : state.activeRun.modelName,
-              logs: [
-                ...state.activeRun.logs,
-                {
-                  id: `log-${nextStep}`,
-                  timestamp: "now",
-                  roleName: nextStep % 2 === 0 ? "Chief of Staff" : "QA / Reviewer",
-                  message: hermesConnected
-                    ? `${state.hermesConnection.modelName || "Hermes"} 연결 상태로 다음 실행 후보를 준비했습니다.`
-                    : nextStep % 2 === 0
-                      ? "다음 실행 후보를 정리했습니다. 위험한 외부 작업은 승인 카드로 분리됩니다."
-                      : "현재는 mock 실행입니다. Hermes 연결 후 실제 에이전트 실행으로 확장됩니다.",
-                  status: nextStep % 2 === 0 ? "running" : "needs_approval",
-                },
-              ],
-              outputPreview: hermesConnected
-                ? "Hermes 연결이 확인되었습니다. 다음 단계에서는 실제 에이전트 실행 요청과 산출물 저장을 연결하면 됩니다."
-                : "다음 단계 후보가 준비되었습니다. 승인 범위 안의 내부 작업은 자동 진행할 수 있습니다.",
-            },
-            actionNotice: hermesConnected ? "Hermes 연결 상태로 다음 단계 로그를 추가했습니다." : "다음 단계 mock 실행 로그를 추가했습니다.",
-          };
-        }),
+      runNextStep: async () => {
+        const state = get();
+        const project = state.projects.find((item) => item.id === state.selectedProjectId);
+        if (!project) {
+          set({ actionNotice: "먼저 새 프로젝트를 만들어 주세요.", view: "new-project" });
+          return;
+        }
+        if (state.activeRun.status === "running") {
+          set({ actionNotice: "이미 Hermes 실행이 진행 중입니다. 완료 후 다시 실행하세요." });
+          return;
+        }
+        const provider = getHermesProviderOption(state.hermesSetupProvider);
+        const isBrowserPreview = !hasTauriRuntime();
+        if (!isBrowserPreview && state.hermesStatus !== "connected") {
+          set({
+            actionNotice: "실제 MVP 실행을 위해 먼저 Hermes 설치와 모델 연결을 완료하세요.",
+            showHermesOnboarding: true,
+          });
+          return;
+        }
+        if (!isBrowserPreview && provider.authType === "api-key" && !state.hermesConnection.apiKey.trim()) {
+          set({
+            hermesStatus: "not_configured",
+            actionNotice: "API 키 방식은 앱을 다시 열면 보안을 위해 키를 다시 입력해야 합니다.",
+            showHermesOnboarding: true,
+          });
+          return;
+        }
+
+        const nextStep = state.activeRun.stepCount + 1;
+        const runId = state.activeRun.id;
+        const runningLog = {
+          id: `log-${project.id}-${nextStep}-running`,
+          timestamp: "now",
+          roleName: "Hermes",
+          message: `${state.hermesConnection.modelName || "Hermes"} 모델로 MVP 실행 초안을 생성하고 있습니다.`,
+          status: "running" as const,
+        };
+        set((current) => ({
+          activeRun: {
+            ...current.activeRun,
+            projectId: project.id,
+            title: `${project.name} MVP 실행`,
+            activeRoleName: "Hermes",
+            modelName: current.hermesConnection.modelName || current.activeRun.modelName,
+            status: "running",
+            stepCount: nextStep,
+            logs: [...current.activeRun.logs, runningLog],
+            outputPreview: "Hermes가 프로젝트 목표를 바탕으로 실행 가능한 MVP 초안을 작성하는 중입니다.",
+          },
+          actionNotice: "Hermes 실제 실행을 시작했습니다.",
+        }));
+
+        try {
+          const result = await runHermesBusinessStep({
+            prompt: buildMvpPrompt(project, state.activeRun),
+            modelName: state.hermesConnection.modelName,
+            provider: state.hermesSetupProvider,
+            apiKey: state.hermesConnection.apiKey,
+          });
+          const output = result.output.trim() || result.message;
+          const artifact: Artifact | null = result.ok
+            ? {
+                id: `artifact-${project.id}-${Date.now()}`,
+                projectId: project.id,
+                title: `MVP 실행 초안 ${nextStep}`,
+                type: "draft",
+                summary: output.length > 360 ? `${output.slice(0, 360)}...` : output,
+                createdAt: new Date().toLocaleString(),
+              }
+            : null;
+          set((current) => {
+            if (current.activeRun.id !== runId || current.activeRun.projectId !== project.id) {
+              return {
+                actionNotice: "이전 프로젝트의 Hermes 실행 결과가 도착했지만 현재 프로젝트가 바뀌어 반영하지 않았습니다.",
+              };
+            }
+            return {
+              artifacts: result.ok && artifact ? [artifact, ...current.artifacts] : current.artifacts,
+              activeRun: {
+                ...current.activeRun,
+                status: result.ok ? "completed" : "failed",
+                outputPreview: output,
+                logs: [
+                  ...current.activeRun.logs,
+                  {
+                    id: `log-${project.id}-${nextStep}-done`,
+                    timestamp: "now",
+                    roleName: result.ok ? "Hermes" : "QARKO OS",
+                    message: result.ok ? "MVP 실행 초안을 생성하고 산출물 보관함에 저장했습니다." : result.message,
+                    status: result.ok ? "completed" : "failed",
+                  },
+                ],
+              },
+              actionNotice: result.ok
+                ? "Hermes가 실제 MVP 초안을 생성했습니다. 산출물 보관함에서 확인하세요."
+                : "Hermes 실행에 실패했습니다. 모델 인증과 설정을 확인하세요.",
+            };
+          });
+        } catch (error) {
+          set((current) => {
+            if (current.activeRun.id !== runId || current.activeRun.projectId !== project.id) {
+              return {
+                actionNotice: "이전 프로젝트의 Hermes 실행 오류가 도착했지만 현재 프로젝트가 바뀌어 반영하지 않았습니다.",
+              };
+            }
+            return {
+              activeRun: {
+                ...current.activeRun,
+                status: "failed",
+                logs: [
+                  ...current.activeRun.logs,
+                  {
+                    id: `log-${project.id}-${nextStep}-error`,
+                    timestamp: "now",
+                    roleName: "QARKO OS",
+                    message: error instanceof Error ? error.message : "Hermes 실행 중 오류가 발생했습니다.",
+                    status: "failed",
+                  },
+                ],
+              },
+              actionNotice: error instanceof Error ? error.message : "Hermes 실행 중 오류가 발생했습니다.",
+            };
+          });
+        }
+      },
       resetWorkspace: () =>
         set({
-          projects: initialProjects,
-          selectedProjectId: initialProjects[0].id,
-          view: "workspace",
-          approvals: initialApprovals,
-          artifacts,
+          projects: [],
+          selectedProjectId: "",
+          view: "new-project",
+          approvals: [],
+          artifacts: [],
           plugins: initialPlugins,
-          activeRun,
-          actionNotice: "워크스페이스를 초기 샘플 상태로 되돌렸습니다.",
+          activeRun: emptyRun,
+          actionNotice: "워크스페이스를 비웠습니다. 새 프로젝트를 만들어 베타 테스트를 시작하세요.",
         }),
       updateHermesConnection: (connection) =>
         set((state) => ({
@@ -674,6 +826,25 @@ export const useQarkoStore = create<QarkoState>()(
       setSyncAccessToken: (token) => set({ syncAccessToken: token, syncStatus: "idle", syncError: undefined, actionNotice: "관리자 토큰을 현재 앱 세션에만 보관합니다. 앱을 다시 열면 다시 입력해야 합니다." }),
       saveToCloud: async () => {
         const state = get();
+        if (!isTrustedSyncEndpoint(state.syncEndpoint)) {
+          set({
+            syncStatus: "error",
+            syncError: "클라우드 동기화 주소는 /api, Railway HTTPS 주소, 또는 로컬 개발 주소만 사용할 수 있습니다.",
+            actionNotice: "신뢰할 수 없는 동기화 주소라 저장을 중단했습니다.",
+          });
+          return;
+        }
+        const hasSensitiveWorkspaceData =
+          state.projects.length > 0 || state.artifacts.length > 0 || state.activeRun.outputPreview.trim().length > 0;
+        if (hasSensitiveWorkspaceData && typeof window !== "undefined") {
+          const approved = window.confirm(
+            "클라우드 저장에는 프로젝트 아이디어, Hermes 실행 결과, 산출물 요약, 피드백, 화면 주석이 포함될 수 있습니다. 베타 테스트 공유/백업 목적일 때만 계속하세요."
+          );
+          if (!approved) {
+            set({ actionNotice: "클라우드 저장을 취소했습니다. 로컬 데이터는 이 PC에만 남아 있습니다." });
+            return;
+          }
+        }
         set({ syncStatus: "syncing", syncError: undefined, actionNotice: "서버에 워크스페이스를 저장하는 중입니다." });
         try {
           const saved = await saveWorkspaceSnapshot(state.syncEndpoint, makeWorkspaceSnapshot(state), state.syncAccessToken);
@@ -694,9 +865,15 @@ export const useQarkoStore = create<QarkoState>()(
       },
     }),
     {
-      name: "qarko-os-workspace-v3",
+      name: "qarko-os-workspace-v4",
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
+      partialize: (state) => {
+        const provider = getHermesProviderOption(state.hermesSetupProvider);
+        const persistedHermesStatus =
+          state.hermesStatus === "connected" && provider.authType === "api-key"
+            ? "not_configured"
+            : state.hermesStatus;
+        return {
         projects: state.projects,
         selectedProjectId: state.selectedProjectId,
         view: state.view,
@@ -710,7 +887,7 @@ export const useQarkoStore = create<QarkoState>()(
         syncEndpoint: state.syncEndpoint,
         syncAccessToken: "",
         hermesConnection: { ...state.hermesConnection, apiKey: "" },
-        hermesStatus: state.hermesStatus,
+        hermesStatus: persistedHermesStatus,
         hermesMessage: state.hermesMessage,
         hermesAvailableModels: state.hermesAvailableModels,
         hermesInstallStatus: state.hermesInstallStatus,
@@ -723,7 +900,8 @@ export const useQarkoStore = create<QarkoState>()(
         hermesUpdateStatus: state.hermesUpdateStatus,
         hermesUpdateMessage: state.hermesUpdateMessage,
         showHermesOnboarding: state.showHermesOnboarding,
-      }),
+        };
+      },
     }
   )
 );

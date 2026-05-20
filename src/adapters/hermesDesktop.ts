@@ -43,6 +43,13 @@ export interface HermesCommandResult {
   output: string;
 }
 
+export interface HermesOneShotRequest {
+  prompt: string;
+  modelName: string;
+  provider: string;
+  apiKey: string;
+}
+
 const hermesVerifiedInstallPlan: HermesVerifiedInstallPlan = {
   channel: "verified",
   label: "QARKO 고정 버전",
@@ -91,7 +98,7 @@ export const getHermesInstallCommand = (): HermesInstallCommand => buildHermesVe
 
 export const getHermesUpdateCommand = (): HermesInstallCommand => buildHermesVerifiedCommand();
 
-const hasTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export const hasTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export const getHermesDesktopStatus = async (): Promise<HermesDesktopStatus> => {
   if (!hasTauriRuntime()) {
@@ -129,4 +136,23 @@ export const loginHermesProvider = async (provider: string): Promise<HermesComma
     throw new Error("Hermes OAuth 로그인은 Windows 데스크톱 앱에서만 사용할 수 있습니다.");
   }
   return invoke<HermesCommandResult>("login_hermes_provider", { request: { provider } });
+};
+
+export const runHermesBusinessStep = async (request: HermesOneShotRequest): Promise<HermesCommandResult> => {
+  if (!hasTauriRuntime()) {
+    return {
+      ok: true,
+      message: "브라우저 미리보기에서는 실제 Hermes 실행 대신 베타용 초안을 생성했습니다.",
+      output: [
+        "## MVP 실행 초안",
+        "",
+        "1. 고객과 문제를 한 문장으로 고정하세요.",
+        "2. 오늘 만들 수 있는 가장 작은 결과물을 정하세요.",
+        "3. 첫 사용자 1명에게 보여줄 화면, 문구, 피드백 질문을 준비하세요.",
+        "",
+        "Windows 앱에서는 이 단계가 Hermes 실제 모델 실행으로 대체됩니다.",
+      ].join("\n"),
+    };
+  }
+  return invoke<HermesCommandResult>("run_hermes_oneshot", { request });
 };
