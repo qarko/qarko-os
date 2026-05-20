@@ -1,10 +1,12 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
+  checkHermesAuthStatus,
   configureHermesGuidedSetup,
   getHermesDesktopStatus,
   hasTauriRuntime,
   loginHermesProvider,
+  openHermesSetupTerminal,
   runHermesBusinessStep,
   startHermesInstall,
   updateHermesToVerifiedVersion,
@@ -101,6 +103,7 @@ interface QarkoState {
   updateHermesSetupProvider: (provider: string) => void;
   saveHermesGuidedSetup: () => Promise<void>;
   loginHermesOAuthProvider: () => Promise<void>;
+  openHermesSetupWizard: (section?: string) => Promise<void>;
   openHermesOnboarding: () => void;
   dismissHermesOnboarding: () => void;
   addFeedback: (input: NewFeedbackInput) => void;
@@ -529,16 +532,29 @@ export const useQarkoStore = create<QarkoState>()(
         const connection = state.hermesConnection;
         const provider = getHermesProviderOption(state.hermesSetupProvider);
         if (provider.authType === "oauth" && !connection.endpoint.trim()) {
-          if (state.hermesAuthStatus !== "completed") {
+          set({
+            hermesStatus: "testing",
+            hermesMessage: "Hermes OAuth 인증 상태를 확인하는 중입니다.",
+            hermesAuthMessage: "Hermes auth status를 확인하는 중입니다.",
+            actionNotice: "Hermes OAuth 상태를 확인하고 있습니다.",
+          });
+          const authResult = await checkHermesAuthStatus(state.hermesSetupProvider);
+          if (!authResult.ok) {
             set({
               hermesStatus: "error",
-              hermesMessage: "먼저 OAuth 로그인을 완료하세요. 로그인 후에는 모델 저장을 누르면 Hermes 설정이 완료됩니다.",
+              hermesAuthStatus: "error",
+              hermesMessage: authResult.message,
+              hermesAuthMessage: authResult.message,
+              hermesSetupOutput: authResult.output,
               actionNotice: "OAuth 로그인이 아직 완료되지 않았습니다.",
             });
             return;
           }
           set((current) => ({
             hermesStatus: "connected",
+            hermesAuthStatus: "completed",
+            hermesAuthMessage: authResult.message,
+            hermesSetupOutput: authResult.output,
             hermesMessage: `${provider.label} OAuth 인증과 모델 설정이 완료되었습니다. HTTP 주소 없이 Hermes CLI 인증으로 사용합니다.`,
             hermesAvailableModels: provider.modelOptions.map((model) => model.id),
             activeRun: { ...current.activeRun, modelName: connection.modelName },
@@ -576,8 +592,9 @@ export const useQarkoStore = create<QarkoState>()(
         });
         try {
           const status = await getHermesDesktopStatus();
+          const verified = status.installed && status.verified !== false;
           set({
-            hermesInstallStatus: status.installed ? "installed" : "missing",
+            hermesInstallStatus: verified ? "installed" : status.installed ? "error" : "missing",
             hermesExecutablePath: status.executablePath,
             hermesInstallMessage: status.version ? `${status.message} ${status.version}` : status.message,
           });
@@ -696,23 +713,41 @@ export const useQarkoStore = create<QarkoState>()(
         const state = get();
         set({
           hermesAuthStatus: "running",
-          hermesAuthMessage: "브라우저 로그인 창을 여는 중입니다. 완료 후 QARKO OS로 돌아와 상태를 확인하세요.",
+          hermesAuthMessage: "Hermes 인증 터미널을 여는 중입니다. 열린 창에서 로그인을 완료한 뒤 QARKO OS로 돌아와 상태를 확인하세요.",
           hermesSetupOutput: "",
           actionNotice: "Hermes OAuth 로그인을 시작했습니다.",
         });
         try {
           const result = await loginHermesProvider(state.hermesSetupProvider);
           set({
-            hermesAuthStatus: result.ok ? "completed" : "error",
+            hermesAuthStatus: result.ok ? "idle" : "error",
             hermesAuthMessage: result.message,
             hermesSetupOutput: result.output,
-            actionNotice: result.ok ? "Hermes OAuth 로그인이 완료되었습니다." : "Hermes OAuth 로그인이 완료되지 않았습니다.",
+            actionNotice: result.ok ? "열린 Hermes 인증 터미널에서 로그인을 완료한 뒤 모델 저장과 연결 확인을 진행하세요." : "Hermes OAuth 로그인이 시작되지 않았습니다.",
           });
         } catch (error) {
           set({
             hermesAuthStatus: "error",
             hermesAuthMessage: error instanceof Error ? error.message : "Hermes OAuth 로그인에 실패했습니다.",
             actionNotice: "Hermes OAuth 로그인에 실패했습니다.",
+          });
+        }
+      },
+      openHermesSetupWizard: async (section) => {
+        set({
+          hermesSetupOutput: "",
+          actionNotice: "Hermes setup 터미널을 여는 중입니다.",
+        });
+        try {
+          const result = await openHermesSetupTerminal(section);
+          set({
+            hermesSetupOutput: result.output,
+            actionNotice: result.message,
+          });
+        } catch (error) {
+          set({
+            hermesSetupOutput: error instanceof Error ? error.message : "Hermes setup 터미널을 열지 못했습니다.",
+            actionNotice: "Hermes setup 터미널을 열지 못했습니다.",
           });
         }
       },

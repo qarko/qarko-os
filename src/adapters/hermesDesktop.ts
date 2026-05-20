@@ -4,6 +4,7 @@ export type HermesInstallState = "unknown" | "installed" | "missing" | "installi
 
 export interface HermesDesktopStatus {
   installed: boolean;
+  verified?: boolean;
   executablePath?: string;
   version?: string;
   message: string;
@@ -52,7 +53,7 @@ export interface HermesOneShotRequest {
 
 const hermesVerifiedInstallPlan: HermesVerifiedInstallPlan = {
   channel: "verified",
-  label: "QARKO 고정 버전",
+  label: "QARKO verified version",
   hermesCommit: "a0bd11d0227239674fe378ff8817f8f6129ef5a7",
   installScriptSha256: "E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064",
   allowUnverifiedLatest: false,
@@ -60,17 +61,17 @@ const hermesVerifiedInstallPlan: HermesVerifiedInstallPlan = {
     {
       name: "Hermes Agent",
       version: "a0bd11d0227239674fe378ff8817f8f6129ef5a7",
-      policy: "QARKO가 지정한 Git commit으로 설치와 업데이트를 고정합니다.",
+      policy: "QARKO installs and updates Hermes from a pinned Git commit.",
     },
     {
       name: "Hermes Windows installer",
       version: "SHA256 E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064",
-      policy: "다운로드 후 해시가 일치할 때만 실행합니다.",
+      policy: "The installer runs only when the downloaded script hash matches.",
     },
     {
-      name: "하위 런타임 의존성",
+      name: "Sub-dependencies",
       version: "Hermes installer managed",
-      policy: "현재는 Hermes 설치 스크립트가 요구하는 런타임을 따릅니다. 상용화 전에는 QARKO 번들 채널로 고정 대상을 넓힙니다.",
+      policy: "For beta, Hermes manages its own dependencies. Before commercial release, QARKO should move to a fully bundled dependency channel.",
     },
   ],
 };
@@ -104,7 +105,8 @@ export const getHermesDesktopStatus = async (): Promise<HermesDesktopStatus> => 
   if (!hasTauriRuntime()) {
     return {
       installed: false,
-      message: "브라우저 미리보기에서는 Hermes 데스크톱 상태 확인을 사용할 수 없습니다.",
+      verified: false,
+      message: "Hermes desktop status is available only in the Windows desktop app.",
     };
   }
   return invoke<HermesDesktopStatus>("hermes_status");
@@ -112,45 +114,59 @@ export const getHermesDesktopStatus = async (): Promise<HermesDesktopStatus> => 
 
 export const startHermesInstall = async () => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes 자동 설치는 Windows 데스크톱 앱에서만 사용할 수 있습니다.");
+    throw new Error("Hermes automatic install is available only in the Windows desktop app.");
   }
   return invoke<string>("install_hermes");
 };
 
 export const updateHermesToVerifiedVersion = async () => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes 업데이트는 Windows 데스크톱 앱에서만 사용할 수 있습니다.");
+    throw new Error("Hermes update is available only in the Windows desktop app.");
   }
   return invoke<string>("update_hermes_verified");
 };
 
+export const openHermesSetupTerminal = async (section?: string): Promise<HermesCommandResult> => {
+  if (!hasTauriRuntime()) {
+    throw new Error("Hermes setup terminal is available only in the Windows desktop app.");
+  }
+  return invoke<HermesCommandResult>("open_hermes_setup_terminal", { section });
+};
+
 export const configureHermesGuidedSetup = async (setup: HermesGuidedSetup): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes 설정 저장은 Windows 데스크톱 앱에서만 사용할 수 있습니다.");
+    throw new Error("Hermes settings can be saved only in the Windows desktop app.");
   }
   return invoke<HermesCommandResult>("configure_hermes", { request: setup });
 };
 
 export const loginHermesProvider = async (provider: string): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes OAuth 로그인은 Windows 데스크톱 앱에서만 사용할 수 있습니다.");
+    throw new Error("Hermes OAuth login is available only in the Windows desktop app.");
   }
   return invoke<HermesCommandResult>("login_hermes_provider", { request: { provider } });
+};
+
+export const checkHermesAuthStatus = async (provider: string): Promise<HermesCommandResult> => {
+  if (!hasTauriRuntime()) {
+    throw new Error("Hermes auth check is available only in the Windows desktop app.");
+  }
+  return invoke<HermesCommandResult>("check_hermes_auth_status", { request: { provider } });
 };
 
 export const runHermesBusinessStep = async (request: HermesOneShotRequest): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
     return {
       ok: true,
-      message: "브라우저 미리보기에서는 실제 Hermes 실행 대신 베타용 초안을 생성했습니다.",
+      message: "Browser preview generated a beta draft instead of running Hermes.",
       output: [
-        "## MVP 실행 초안",
+        "## MVP execution draft",
         "",
-        "1. 고객과 문제를 한 문장으로 고정하세요.",
-        "2. 오늘 만들 수 있는 가장 작은 결과물을 정하세요.",
-        "3. 첫 사용자 1명에게 보여줄 화면, 문구, 피드백 질문을 준비하세요.",
+        "1. Lock the customer and problem into one sentence.",
+        "2. Define the smallest result that can be built today.",
+        "3. Prepare copy, a demo screen, and feedback questions for the first user.",
         "",
-        "Windows 앱에서는 이 단계가 Hermes 실제 모델 실행으로 대체됩니다.",
+        "In the Windows desktop app, this step is replaced by a real Hermes model run.",
       ].join("\n"),
     };
   }

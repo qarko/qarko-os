@@ -22,6 +22,7 @@ static HERMES_PROMPT_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[serde(rename_all = "camelCase")]
 struct HermesStatus {
     installed: bool,
+    verified: bool,
     executable_path: Option<String>,
     version: Option<String>,
     message: String,
@@ -98,7 +99,7 @@ fn file_sha256_hex(path: &PathBuf) -> Result<String, String> {
 }
 
 fn write_hermes_verified_marker() -> Result<(), String> {
-    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent 실행 파일을 찾지 못했습니다.".to_string())?;
+    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent executable was not found after install.".to_string())?;
     let exe_hash = file_sha256_hex(&hermes)?;
     let marker_path = hermes_verification_marker_path();
     if let Some(parent) = marker_path.parent() {
@@ -140,6 +141,14 @@ fn hermes_verified_for_execution(path: &PathBuf) -> bool {
         (Ok(marker_time), Ok(exe_time)) => marker_time >= exe_time,
         _ => false,
     }
+}
+
+fn verified_hermes_executable() -> Result<PathBuf, String> {
+    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent is not installed yet.".to_string())?;
+    if !hermes_verified_for_execution(&hermes) {
+        return Err("Hermes executable does not match the QARKO verified install state. Run repair/update from the setup wizard first.".to_string());
+    }
+    Ok(hermes)
 }
 
 fn powershell_install_script() -> String {
@@ -193,9 +202,9 @@ fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
     Ok(CommandResult {
         ok: output.status.success(),
         message: if output.status.success() {
-            "명령을 완료했습니다.".to_string()
+            "Command completed.".to_string()
         } else {
-            "명령 실행 중 오류가 발생했습니다.".to_string()
+            "Command failed.".to_string()
         },
         output: combined,
     })
@@ -214,9 +223,9 @@ fn command_result_from_output(status_success: bool, stdout: &[u8], stderr: &[u8]
     CommandResult {
         ok: status_success,
         message: if status_success {
-            "명령을 완료했습니다.".to_string()
+            "Command completed.".to_string()
         } else {
-            "명령 실행 중 오류가 발생했습니다.".to_string()
+            "Command failed.".to_string()
         },
         output: combined,
     }
@@ -229,8 +238,8 @@ fn run_hidden_command_with_timeout(command: &mut Command, timeout: Duration) -> 
 
     let start = Instant::now();
     let mut child = command.spawn().map_err(|error| error.to_string())?;
-    let mut stdout = child.stdout.take().ok_or_else(|| "stdout pipe를 열지 못했습니다.".to_string())?;
-    let mut stderr = child.stderr.take().ok_or_else(|| "stderr pipe를 열지 못했습니다.".to_string())?;
+    let mut stdout = child.stdout.take().ok_or_else(|| "Could not open stdout pipe.".to_string())?;
+    let mut stderr = child.stderr.take().ok_or_else(|| "Could not open stderr pipe.".to_string())?;
     let stdout_handle = thread::spawn(move || {
         let mut buffer = Vec::new();
         let _ = stdout.read_to_end(&mut buffer);
@@ -262,8 +271,8 @@ fn run_hidden_command_with_timeout(command: &mut Command, timeout: Duration) -> 
             let _ = stderr_handle.join();
             return Ok(CommandResult {
                 ok: false,
-                message: "Hermes 실행 시간이 초과되었습니다.".to_string(),
-                output: "Hermes 실행이 3분 안에 끝나지 않아 중단했습니다. 인증 상태나 네트워크를 확인한 뒤 다시 시도하세요.".to_string(),
+                message: "Hermes execution timed out.".to_string(),
+                output: "Hermes did not finish within 3 minutes. Check auth, network, and model settings, then try again.".to_string(),
             });
         }
         thread::sleep(Duration::from_millis(250));
@@ -277,7 +286,7 @@ impl HermesInstallGuard {
         HERMES_INSTALL_IN_PROGRESS
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .map(|_| HermesInstallGuard)
-            .map_err(|_| "Hermes 설치 또는 업데이트가 이미 진행 중입니다. 완료 후 다시 시도하세요.".to_string())
+            .map_err(|_| "Hermes install or update is already running. Wait for it to finish, then try again.".to_string())
     }
 }
 
@@ -290,24 +299,35 @@ impl Drop for HermesInstallGuard {
 #[tauri::command]
 fn hermes_status() -> HermesStatus {
     if let Some(path) = find_hermes_executable() {
-        let version = run_hidden_command(Command::new(&path).arg("--version"))
-            .ok()
-            .map(|result| result.output)
-            .filter(|value| !value.is_empty());
+        let verified = hermes_verified_for_execution(&path);
+        let version = if verified {
+            run_hidden_command(Command::new(&path).arg("--version"))
+                .ok()
+                .map(|result| result.output)
+                .filter(|value| !value.is_empty())
+        } else {
+            None
+        };
 
         return HermesStatus {
             installed: true,
+            verified,
             executable_path: Some(path.to_string_lossy().to_string()),
             version,
-            message: "Hermes Agent가 설치되어 있습니다.".to_string(),
+            message: if verified {
+                "Hermes Agent is installed and verified.".to_string()
+            } else {
+                "Hermes Agent was found, but QARKO has not verified this install. Run repair/update before setup or auth.".to_string()
+            },
         };
     }
 
     HermesStatus {
         installed: false,
+        verified: false,
         executable_path: None,
         version: None,
-        message: "Hermes Agent를 찾지 못했습니다.".to_string(),
+        message: "Hermes Agent was not found. Install Hermes before setup or auth.".to_string(),
     }
 }
 
@@ -326,7 +346,7 @@ fn install_hermes() -> Result<String, String> {
     }
 
     if result.ok {
-        Ok("Hermes 설치가 완료되었습니다. 이제 모델 설정을 진행하세요.".to_string())
+        Ok("Hermes installation is complete. Continue with model setup.".to_string())
     } else {
         Err(if result.output.is_empty() { result.message } else { result.output })
     }
@@ -347,7 +367,7 @@ fn update_hermes_verified() -> Result<String, String> {
     }
 
     if result.ok {
-        Ok("Hermes를 QARKO 검증 버전으로 업데이트/복구했습니다. 모델 설정을 다시 확인하세요.".to_string())
+        Ok("Hermes was repaired/updated to the QARKO verified version. Check model setup again.".to_string())
     } else {
         Err(if result.output.is_empty() { result.message } else { result.output })
     }
@@ -423,29 +443,75 @@ fn set_hermes_config(hermes: &PathBuf, key: &str, value: &str) -> Result<Command
     run_hidden_command(Command::new(hermes).args(["config", "set", key, value]))
 }
 
+fn cmd_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\\\""))
+}
+
+fn open_visible_hermes_terminal(args: &[&str], title: &str) -> Result<(), String> {
+    let hermes = verified_hermes_executable()?;
+    let mut command_line = cmd_quote(&hermes.to_string_lossy());
+    for arg in args {
+        command_line.push(' ');
+        command_line.push_str(&cmd_quote(arg));
+    }
+    command_line.push_str(" & echo. & echo QARKO OS: You can close this window after the Hermes task finishes.");
+
+    Command::new("cmd.exe")
+        .args(["/C", "start", title, "cmd.exe", "/K", &command_line])
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn oauth_provider_allowed(provider: &str) -> bool {
+    matches!(
+        provider,
+        "nous" | "openai-codex" | "xai-oauth" | "qwen-oauth" | "google-gemini-cli" | "minimax-oauth"
+    )
+}
+
+#[tauri::command]
+fn open_hermes_setup_terminal(section: Option<String>) -> Result<CommandResult, String> {
+    let section = section.unwrap_or_default();
+    let section = section.trim();
+    let mut args = vec!["setup"];
+    if !section.is_empty() {
+        match section {
+            "model" | "tts" | "terminal" | "gateway" | "tools" | "agent" => args.push(section),
+            _ => return Err("Unsupported Hermes setup section.".to_string()),
+        }
+    }
+    open_visible_hermes_terminal(&args, "QARKO Hermes Setup")?;
+    Ok(CommandResult {
+        ok: true,
+        message: "Hermes setup terminal opened. Use the visible window to choose models and settings.".to_string(),
+        output: "Visible terminal launched for hermes setup.".to_string(),
+    })
+}
+
 #[tauri::command]
 fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String> {
-    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent가 아직 설치되지 않았습니다.".to_string())?;
+    let hermes = verified_hermes_executable()?;
     let model = request.model_name.trim();
     if model.is_empty() {
-        return Err("모델명을 입력하세요.".to_string());
+        return Err("Enter a model name.".to_string());
     }
     let provider = request.provider.trim();
     let provider_config = hermes_provider_config(provider)
-        .ok_or_else(|| "지원하지 않는 Hermes 제공자입니다.".to_string())?;
+        .ok_or_else(|| "Unsupported Hermes provider.".to_string())?;
 
     let mut outputs = Vec::new();
     if api_key_name_for_provider(provider).is_some() && !request.api_key.trim().is_empty() {
         return Ok(CommandResult {
             ok: false,
-            message: "보안을 위해 API 키를 Hermes CLI 명령 인자로 저장하지 않습니다. 키는 연결 테스트에만 임시 사용됩니다.".to_string(),
+            message: "For security, QARKO does not save API keys through Hermes config commands. The key is used only for the current connection test/run.".to_string(),
             output: outputs.join("\n"),
         });
     }
 
     for (key, value, error_message) in [
-        ("model.default", model, "Hermes 모델 저장에 실패했습니다."),
-        ("model.provider", provider_config.provider, "Hermes 제공자 저장에 실패했습니다."),
+        ("model.default", model, "Failed to save the Hermes model."),
+        ("model.provider", provider_config.provider, "Failed to save the Hermes provider."),
     ] {
         let result = set_hermes_config(&hermes, key, value)?;
         outputs.push(result.output);
@@ -468,7 +534,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
     if !endpoint_result.ok {
         return Ok(CommandResult {
             ok: false,
-            message: "Hermes API 주소 저장에 실패했습니다.".to_string(),
+            message: "Failed to save the Hermes API base URL.".to_string(),
             output: outputs.join("\n"),
         });
     }
@@ -478,14 +544,14 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
     if !api_mode_result.ok {
         return Ok(CommandResult {
             ok: false,
-            message: "Hermes API 모드 저장에 실패했습니다.".to_string(),
+            message: "Failed to save the Hermes API mode.".to_string(),
             output: outputs.join("\n"),
         });
     }
 
     Ok(CommandResult {
         ok: true,
-        message: "Hermes 기본 설정을 저장했습니다.".to_string(),
+        message: "Hermes default settings were saved.".to_string(),
         output: outputs
             .into_iter()
             .filter(|value| !value.is_empty())
@@ -496,60 +562,62 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
 
 #[tauri::command]
 fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, String> {
-    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent가 아직 설치되지 않았습니다.".to_string())?;
     let provider = request.provider.trim();
-    let allowed_provider = match provider {
-        "nous" | "openai-codex" | "xai-oauth" | "qwen-oauth" | "google-gemini-cli" | "minimax-oauth" => provider,
-        _ => return Err("이 제공자는 QARKO OS OAuth 로그인에서 아직 지원하지 않습니다.".to_string()),
-    };
-
-    let result = run_hidden_command(Command::new(&hermes).args([
-        "auth",
-        "add",
-        allowed_provider,
-        "--type",
-        "oauth",
-        "--timeout",
-        "240",
-    ]))?;
-
-    if result.ok {
-        Ok(CommandResult {
-            ok: true,
-            message: "Hermes OAuth 인증이 완료되었습니다. 이제 사용할 모델을 선택하고 저장하세요.".to_string(),
-            output: "OAuth 인증 명령이 완료되었습니다. 보안을 위해 인증 출력 원문은 표시하지 않습니다.".to_string(),
-        })
-    } else {
-        Ok(CommandResult {
-            ok: false,
-            message: "Hermes OAuth 로그인이 완료되지 않았습니다.".to_string(),
-            output: result.output,
-        })
+    if !oauth_provider_allowed(provider) {
+        return Err("이 제공자는 QARKO OS OAuth 로그인에서 아직 지원하지 않습니다.".to_string());
     }
+
+    open_visible_hermes_terminal(&["auth", "add", provider, "--type", "oauth", "--timeout", "900"], "QARKO Hermes Auth")?;
+    Ok(CommandResult {
+        ok: true,
+        message: "Hermes 인증 터미널 창을 열었습니다. 열린 창에 표시되는 주소나 코드를 따라 로그인하세요.".to_string(),
+        output: "Visible terminal launched for hermes auth add.".to_string(),
+    })
+}
+
+#[tauri::command]
+fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult, String> {
+    let hermes = verified_hermes_executable()?;
+    let provider = request.provider.trim();
+    if !oauth_provider_allowed(provider) {
+        return Err("This provider is not supported for QARKO OS OAuth checks yet.".to_string());
+    }
+    let result = run_hidden_command(Command::new(&hermes).args(["auth", "status", provider]))?;
+    let lower = result.output.to_lowercase();
+    let logged_in = result.ok
+        && !lower.contains("logged out")
+        && !lower.contains("no credentials")
+        && !lower.contains("not logged");
+    Ok(CommandResult {
+        ok: logged_in,
+        message: if logged_in {
+            "Hermes auth status is connected.".to_string()
+        } else {
+            "Hermes auth is not complete yet. Finish login in the visible terminal, then check again.".to_string()
+        },
+        output: result.output,
+    })
 }
 
 #[tauri::command]
 fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, String> {
-    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent가 아직 설치되지 않았습니다.".to_string())?;
-    if !hermes_verified_for_execution(&hermes) {
-        return Err("Hermes 실행 파일이 QARKO 검증 설치 상태와 일치하지 않습니다. 설정 마법사에서 검증 버전 복구/업데이트를 먼저 실행하세요.".to_string());
-    }
+    let hermes = verified_hermes_executable()?;
     let prompt = request.prompt.trim();
     let model = request.model_name.trim();
     let provider = request.provider.trim();
     let provider_config = hermes_provider_config(provider)
-        .ok_or_else(|| "지원하지 않는 Hermes 제공자입니다.".to_string())?;
+        .ok_or_else(|| "Unsupported Hermes provider.".to_string())?;
 
     let api_key = request.api_key.trim();
     if api_key_name_for_provider(provider).is_some() && api_key.is_empty() {
-        return Err("API 키 방식 모델은 실행 전에 키를 입력해야 합니다. QARKO OS는 보안을 위해 API 키를 저장하지 않으므로 앱을 다시 열면 다시 입력하세요.".to_string());
+        return Err("This provider requires an API key for each run. QARKO does not save API keys, so enter it again after reopening the app.".to_string());
     }
 
     if prompt.is_empty() {
-        return Err("Hermes에 보낼 작업 내용이 비어 있습니다.".to_string());
+        return Err("The task prompt for Hermes is empty.".to_string());
     }
     if prompt.len() > 12000 {
-        return Err("작업 내용이 너무 깁니다. 프로젝트 목표를 조금 줄인 뒤 다시 실행하세요.".to_string());
+        return Err("The task prompt is too long. Shorten the project goal and try again.".to_string());
     }
 
     let runtime_dir = qarko_local_app_dir().join("runtime");
@@ -598,13 +666,13 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
     if result.ok {
         Ok(CommandResult {
             ok: true,
-            message: "Hermes가 MVP 실행 초안을 생성했습니다.".to_string(),
+            message: "Hermes generated the MVP execution draft.".to_string(),
             output: result.output,
         })
     } else {
         Ok(CommandResult {
             ok: false,
-            message: "Hermes 실행에 실패했습니다.".to_string(),
+            message: "Hermes execution failed.".to_string(),
             output: result.output,
         })
     }
@@ -617,8 +685,10 @@ pub fn run() {
             hermes_status,
             install_hermes,
             update_hermes_verified,
+            open_hermes_setup_terminal,
             configure_hermes,
             login_hermes_provider,
+            check_hermes_auth_status,
             run_hermes_oneshot
         ])
         .run(tauri::generate_context!())
