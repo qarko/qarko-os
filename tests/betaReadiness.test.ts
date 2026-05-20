@@ -9,7 +9,7 @@ test("beta workspace starts without seeded sample projects", () => {
 
   assert.match(storeSource, /projects:\s*\[\]/);
   assert.match(storeSource, /selectedProjectId:\s*""/);
-  assert.match(storeSource, /view:\s*"new-project"/);
+  assert.match(storeSource, /view:\s*"workspace"/);
   assert.match(storeSource, /approvals:\s*\[\]/);
   assert.match(storeSource, /artifacts:\s*\[\]/);
   assert.match(storeSource, /qarko-os-workspace-v4/);
@@ -57,6 +57,41 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(storeSource, /feedback|reviewNotes/);
   assert.match(storeSource, /isTrustedSyncEndpoint/);
   assert.match(storeSource, /current\.activeRun\.id !== runId/);
+});
+
+test("QARKO beta uses Korean workbench-first Hermes onboarding", () => {
+  const onboardingSource = readFileSync("src/components/onboarding/HermesOnboarding.tsx", "utf8");
+  const dashboardSource = readFileSync("src/components/dashboard/WorkspaceDashboard.tsx", "utf8");
+  const executionPanel = readFileSync("src/components/execution/ExecutionPanel.tsx", "utf8");
+  const mockDataSource = readFileSync("src/data/mockData.ts", "utf8");
+  const typeSource = readFileSync("src/types/qarko.ts", "utf8");
+  const storeSource = readFileSync("src/store/useQarkoStore.ts", "utf8");
+
+  assert.match(onboardingSource, /준비 체크리스트/);
+  assert.match(onboardingSource, /Hermes 설치/);
+  assert.match(onboardingSource, /모델 제공자/);
+  assert.match(onboardingSource, /인증 터미널/);
+  assert.match(onboardingSource, /대화형 설정을 요구할 때만/);
+  assert.doesNotMatch(onboardingSource, /Hermes setup wizard/);
+  assert.doesNotMatch(onboardingSource, /Open auth terminal/);
+
+  assert.match(typeSource + mockDataSource + storeSource + dashboardSource, /샌드박스\(안전 승인 모드\)/);
+  assert.match(typeSource + mockDataSource + dashboardSource + executionPanel, /OS 수준 파일 격리/);
+  assert.match(typeSource + mockDataSource + dashboardSource + executionPanel, /검증된 Hermes 실행 파일/);
+  assert.match(mockDataSource, /보기\/초안 모드/);
+  assert.match(mockDataSource, /자동 실행 모드/);
+
+  assert.match(dashboardSource, /작업실/);
+  assert.match(dashboardSource, /오늘 할 작업/);
+  assert.match(dashboardSource, /Hermes 실행/);
+  assert.match(dashboardSource, /textarea/);
+  assert.match(dashboardSource, /runWorkbenchTask/);
+  assert.match(storeSource, /runWorkbenchTask/);
+
+  assert.match(executionPanel, /실행 로그/);
+  assert.match(executionPanel, /산출물/);
+  assert.match(executionPanel, /승인/);
+  assert.match(executionPanel, /피드백/);
 });
 
 test("browser preview can run the beta fallback without Tauri", async () => {

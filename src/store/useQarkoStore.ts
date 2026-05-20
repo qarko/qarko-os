@@ -89,6 +89,7 @@ interface QarkoState {
   setAutomationMode: (mode: AutomationMode) => void;
   resolveApproval: (approvalId: string, decision: ApprovalDecision) => void;
   togglePlugin: (pluginId: string) => void;
+  runWorkbenchTask: (idea: string, mode: AutomationMode) => Promise<void>;
   runNextStep: () => Promise<void>;
   resetWorkspace: () => void;
   setSyncEndpoint: (endpoint: string) => void;
@@ -316,7 +317,7 @@ export const useQarkoStore = create<QarkoState>()(
       workspace,
       projects: [],
       selectedProjectId: "",
-      view: "new-project",
+      view: "workspace",
       approvals: [],
       artifacts: [],
       plugins: initialPlugins,
@@ -383,15 +384,50 @@ export const useQarkoStore = create<QarkoState>()(
             actionNotice: plugin ? `${plugin.name} 플러그인을 ${nextEnabled ? "활성화" : "비활성화"}했습니다.` : "플러그인 상태를 변경했습니다.",
           };
         }),
+      runWorkbenchTask: async (idea, mode) => {
+        const trimmedIdea = idea.trim();
+        const state = get();
+        if (!state.selectedProjectId && !state.projects.length && !trimmedIdea) {
+          set({ actionNotice: "오늘 Hermes로 맡길 첫 작업을 입력해 주세요." });
+          return;
+        }
+        if (trimmedIdea && (!state.selectedProjectId || !state.projects.length)) {
+          const project = buildProjectFromIdea({ idea: trimmedIdea, mode, customRules: defaultRules }, state.projects.length + 1);
+          set((current) => ({
+            projects: [project, ...current.projects],
+            selectedProjectId: project.id,
+            view: "workspace",
+            activeRun: buildRunForProject(project),
+            actionNotice: `"${project.name}" 작업실을 만들고 Hermes 실행을 준비했습니다.`,
+          }));
+        } else if (!state.selectedProjectId && state.projects[0]) {
+          set({
+            selectedProjectId: state.projects[0].id,
+            view: "workspace",
+            activeRun: buildRunForProject(state.projects[0]),
+          });
+        }
+        await get().runNextStep();
+      },
       runNextStep: async () => {
         const state = get();
         const project = state.projects.find((item) => item.id === state.selectedProjectId);
         if (!project) {
-          set({ actionNotice: "먼저 새 프로젝트를 만들어 주세요.", view: "new-project" });
+          set({ actionNotice: "오늘 Hermes로 맡길 작업을 먼저 입력해 주세요.", view: "workspace" });
           return;
         }
         if (state.activeRun.status === "running") {
           set({ actionNotice: "이미 Hermes 실행이 진행 중입니다. 완료 후 다시 실행하세요." });
+          return;
+        }
+        const hasPendingApproval = state.approvals.some(
+          (approval) => approval.projectId === project.id && approval.status === "pending"
+        );
+        if (hasPendingApproval && project.automationMode !== "automation") {
+          set({
+            actionNotice:
+              "샌드박스(안전 승인 모드): 승인 대기 작업을 먼저 확인하세요. 베타에서는 위험 작업을 승인 목록에 세워두고 사용자가 직접 진행 여부를 정합니다.",
+          });
           return;
         }
         const provider = getHermesProviderOption(state.hermesSetupProvider);
@@ -513,7 +549,7 @@ export const useQarkoStore = create<QarkoState>()(
         set({
           projects: [],
           selectedProjectId: "",
-          view: "new-project",
+          view: "workspace",
           approvals: [],
           artifacts: [],
           plugins: initialPlugins,

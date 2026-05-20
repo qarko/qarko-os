@@ -9,3 +9,5 @@ vite-dev*.log
 src-tauri/target/
 src-tauri/gen/
 .superpowers/
+.playwright-cli/
+output/

@@ -1,27 +1,16 @@
-import {
-  Activity,
-  Bot,
-  CheckCircle2,
-  CircleDot,
-  Code2,
-  MessageSquarePlus,
-  Play,
-  Settings2,
-  ShieldAlert,
-  X,
-} from "lucide-react";
+import { Activity, Bot, CheckCircle2, FileText, MessageSquarePlus, Play, Settings2, ShieldAlert, X } from "lucide-react";
 import { useState } from "react";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import type { ReviewNote } from "../../types/qarko";
 import { StatusBadge } from "../ui/StatusBadge";
 
-type LiveTab = "progress" | "changes" | "review" | "notes" | "hermes";
+type LiveTab = "log" | "artifacts" | "approval" | "feedback" | "hermes";
 
 const tabs: Array<{ id: LiveTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: "progress", label: "진행", icon: Activity },
-  { id: "changes", label: "변경", icon: Code2 },
-  { id: "review", label: "검토", icon: ShieldAlert },
-  { id: "notes", label: "주석", icon: MessageSquarePlus },
+  { id: "log", label: "실행 로그", icon: Activity },
+  { id: "artifacts", label: "산출물", icon: FileText },
+  { id: "approval", label: "승인", icon: ShieldAlert },
+  { id: "feedback", label: "피드백", icon: MessageSquarePlus },
   { id: "hermes", label: "Hermes", icon: Settings2 },
 ];
 
@@ -34,8 +23,8 @@ const noteStatusLabel: Record<ReviewNote["status"], string> = {
 export function ExecutionPanel() {
   const {
     activeRun,
+    addReviewNote,
     approvals,
-    actionNotice,
     artifacts,
     feedback,
     hermesConnection,
@@ -43,26 +32,24 @@ export function ExecutionPanel() {
     hermesSetupProvider,
     hermesStatus,
     openHermesOnboarding,
-    plugins,
     reviewNotes,
     runNextStep,
-    addReviewNote,
     updateReviewNoteStatus,
   } = useQarkoStore();
   const [activeTab, setActiveTab] = useState<LiveTab | null>(null);
   const [noteTarget, setNoteTarget] = useState("현재 화면");
   const [noteMessage, setNoteMessage] = useState("");
+
   const pendingApproval = approvals.find((approval) => approval.status === "pending");
-  const runtimeTone = hermesStatus === "connected" ? "connected" : hermesStatus === "error" ? "failed" : "mock";
-  const runtimeLabel =
-    hermesStatus === "connected" ? "Hermes 연결됨" : hermesStatus === "testing" ? "Hermes 확인 중" : hermesStatus === "error" ? "Hermes 오류" : "Hermes Mock";
+  const runtimeTone = hermesStatus === "connected" ? "connected" : hermesStatus === "error" ? "failed" : "not_connected";
+  const runtimeLabel = hermesStatus === "connected" ? "Hermes 연결됨" : hermesStatus === "testing" ? "Hermes 확인 중" : hermesStatus === "error" ? "Hermes 오류" : "Hermes 미연결";
 
   const submitNote = () => {
     const trimmed = noteMessage.trim();
     if (!trimmed) return;
     addReviewNote({ target: noteTarget, message: trimmed });
     setNoteMessage("");
-    setActiveTab("notes");
+    setActiveTab("feedback");
   };
 
   return (
@@ -72,7 +59,7 @@ export function ExecutionPanel() {
           <div className="border-b border-line p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-normal text-moss">Live panel</p>
+                <p className="text-xs font-semibold uppercase tracking-normal text-moss">실시간 패널</p>
                 <h2 className="text-base font-bold text-ink">{activeRun.title}</h2>
               </div>
               <button onClick={() => setActiveTab(null)} className="rounded-md p-2 text-stone-500 hover:bg-panel hover:text-ink" aria-label="패널 닫기">
@@ -90,58 +77,62 @@ export function ExecutionPanel() {
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span>Model</span>
-                <span className="max-w-44 truncate font-medium text-ink">{hermesStatus === "connected" ? hermesConnection.modelName : activeRun.modelName}</span>
+                <span className="max-w-44 truncate font-medium text-ink">{hermesConnection.modelName || activeRun.modelName}</span>
               </div>
             </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-4 thin-scrollbar">
-            {activeTab === "progress" ? (
+            {activeTab === "log" ? (
               <div className="space-y-4">
-                <div className="mb-3 flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <Bot className="h-4 w-4 text-signal" />
-                  <h3 className="text-sm font-semibold text-ink">실시간 진행 로그</h3>
+                  <h3 className="text-sm font-semibold text-ink">실행 로그</h3>
                 </div>
                 <div className="space-y-2">
-                  {activeRun.logs.map((log) => (
-                    <div key={log.id} className="rounded-md border border-line bg-white p-3 shadow-sm">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          {log.status === "completed" ? <CheckCircle2 className="h-4 w-4 shrink-0 text-signal" /> : <CircleDot className="h-4 w-4 shrink-0 text-caution" />}
+                  {activeRun.logs.length > 0 ? (
+                    activeRun.logs.map((log) => (
+                      <div key={log.id} className="rounded-md border border-line bg-white p-3 shadow-sm">
+                        <div className="mb-2 flex items-center justify-between gap-2">
                           <span className="truncate text-xs font-semibold text-ink">{log.roleName}</span>
+                          <span className="text-xs text-moss">{log.timestamp}</span>
                         </div>
-                        <span className="text-xs text-moss">{log.timestamp}</span>
+                        <p className="text-xs leading-5 text-stone-600">{log.message}</p>
                       </div>
-                      <p className="text-xs leading-5 text-stone-600">{log.message}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="rounded-md border border-line bg-panel p-3 text-xs leading-5 text-stone-700">{actionNotice}</div>
-              </div>
-            ) : null}
-
-            {activeTab === "changes" ? (
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-ink">변경 사항 요약</h3>
-                <div className="grid gap-2 text-xs leading-5 text-stone-700">
-                  <div className="rounded-md border border-line bg-white p-3">
-                    최근 실행: {activeRun.logs[activeRun.logs.length - 1]?.message ?? "아직 실행 로그가 없습니다."}
-                  </div>
-                  <div className="rounded-md border border-line bg-white p-3">Hermes 설치 상태: {hermesInstallStatus}</div>
-                  <div className="rounded-md border border-line bg-white p-3">활성 플러그인: {plugins.filter((plugin) => plugin.enabled).length}개</div>
-                  <div className="rounded-md border border-line bg-white p-3">산출물: {artifacts.length}개</div>
-                  <div className="rounded-md border border-line bg-white p-3">테스터 피드백: {feedback.length}개</div>
-                  <div className="rounded-md border border-line bg-white p-3">화면 주석: {reviewNotes.length}개</div>
-                  <div className="rounded-md border border-dashed border-line bg-panel p-3 text-stone-600">
-                    코드 diff와 웹 변경 미리보기는 실제 작업 실행 엔진 연결 단계에서 이 탭에 붙입니다.
-                  </div>
+                    ))
+                  ) : (
+                    <p className="rounded-md border border-dashed border-line bg-white p-4 text-xs leading-5 text-stone-600">
+                      아직 실행 로그가 없습니다. 작업실에서 Hermes 실행을 누르면 여기에 진행 상황이 표시됩니다.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : null}
 
-            {activeTab === "review" ? (
+            {activeTab === "artifacts" ? (
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-ink">승인과 검토</h3>
+                <h3 className="text-sm font-semibold text-ink">산출물</h3>
+                <div className="rounded-md border border-line bg-white p-4 shadow-sm">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-normal text-moss">Output preview</p>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700">{activeRun.outputPreview || "Hermes 실행 결과가 여기에 표시됩니다."}</p>
+                </div>
+                {artifacts.slice(0, 5).map((artifact) => (
+                  <article key={artifact.id} className="rounded-md border border-line bg-white p-3 shadow-sm">
+                    <p className="text-sm font-semibold text-ink">{artifact.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-stone-600">{artifact.summary}</p>
+                    <p className="mt-2 text-xs text-moss">{artifact.createdAt}</p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+
+            {activeTab === "approval" ? (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-ink">승인</h3>
+                <div className="rounded-md border border-line bg-panel p-3 text-xs leading-5 text-stone-700">
+                  베타의 샌드박스(안전 승인 모드)는 위험 작업을 승인 대기 목록으로 보여주는 보호 흐름입니다. OS 수준 파일 격리는
+                  상용화 전 추가 예정이며, 현재는 검증된 Hermes 실행 파일과 사용자 승인 UX를 중심으로 보호합니다.
+                </div>
                 {pendingApproval ? (
                   <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
                     <div className="mb-2 flex items-center gap-2 text-caution">
@@ -152,21 +143,17 @@ export function ExecutionPanel() {
                     <p className="mt-1 text-xs leading-5 text-stone-700">{pendingApproval.whatWillHappen}</p>
                   </div>
                 ) : (
-                  <div className="rounded-md border border-dashed border-line bg-white p-4 text-xs leading-5 text-stone-600">
-                    현재 즉시 승인할 작업은 없습니다.
-                  </div>
+                  <p className="rounded-md border border-dashed border-line bg-white p-4 text-xs leading-5 text-stone-600">
+                    현재 승인 대기 작업이 없습니다.
+                  </p>
                 )}
-                <div className="rounded-md border border-line bg-white p-4 shadow-sm">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-normal text-moss">Output preview</p>
-                  <p className="text-sm leading-6 text-stone-700">{activeRun.outputPreview}</p>
-                </div>
               </div>
             ) : null}
 
-            {activeTab === "notes" ? (
+            {activeTab === "feedback" ? (
               <div className="space-y-4">
                 <div className="rounded-md border border-line bg-white p-4 shadow-sm">
-                  <h3 className="text-sm font-semibold text-ink">화면 주석 남기기</h3>
+                  <h3 className="text-sm font-semibold text-ink">피드백 / 화면 주석</h3>
                   <label className="mt-3 grid gap-2 text-xs font-semibold text-ink">
                     위치
                     <input value={noteTarget} onChange={(event) => setNoteTarget(event.target.value)} className="rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-signal" />
@@ -176,7 +163,7 @@ export function ExecutionPanel() {
                     <textarea
                       value={noteMessage}
                       onChange={(event) => setNoteMessage(event.target.value)}
-                      placeholder="이 화면에서 무엇을 바꾸면 좋을지 적어주세요."
+                      placeholder="이 화면에서 막힌 점이나 바꾸면 좋을 점을 적어주세요."
                       className="min-h-24 rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-signal"
                     />
                   </label>
@@ -185,32 +172,31 @@ export function ExecutionPanel() {
                     주석 저장
                   </button>
                 </div>
+                <div className="rounded-md border border-line bg-panel p-3 text-xs leading-5 text-stone-700">
+                  저장된 피드백 {feedback.length}개, 화면 주석 {reviewNotes.length}개
+                </div>
                 <div className="space-y-2">
-                  {reviewNotes.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-line bg-white p-4 text-xs leading-5 text-stone-600">아직 저장된 화면 주석이 없습니다.</div>
-                  ) : (
-                    reviewNotes.map((note) => (
-                      <article key={note.id} className="rounded-md border border-line bg-white p-3 shadow-sm">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <span className="truncate text-xs font-semibold text-ink">{note.target}</span>
-                          <select value={note.status} onChange={(event) => updateReviewNoteStatus(note.id, event.target.value as ReviewNote["status"])} className="rounded border border-line bg-white px-2 py-1 text-xs">
-                            <option value="open">{noteStatusLabel.open}</option>
-                            <option value="in_progress">{noteStatusLabel.in_progress}</option>
-                            <option value="done">{noteStatusLabel.done}</option>
-                          </select>
-                        </div>
-                        <p className="text-xs leading-5 text-stone-700">{note.message}</p>
-                        <p className="mt-2 text-xs text-moss">{note.createdAt}</p>
-                      </article>
-                    ))
-                  )}
+                  {reviewNotes.map((note) => (
+                    <article key={note.id} className="rounded-md border border-line bg-white p-3 shadow-sm">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-semibold text-ink">{note.target}</span>
+                        <select value={note.status} onChange={(event) => updateReviewNoteStatus(note.id, event.target.value as ReviewNote["status"])} className="rounded border border-line bg-white px-2 py-1 text-xs">
+                          <option value="open">{noteStatusLabel.open}</option>
+                          <option value="in_progress">{noteStatusLabel.in_progress}</option>
+                          <option value="done">{noteStatusLabel.done}</option>
+                        </select>
+                      </div>
+                      <p className="text-xs leading-5 text-stone-700">{note.message}</p>
+                      <p className="mt-2 text-xs text-moss">{note.createdAt}</p>
+                    </article>
+                  ))}
                 </div>
               </div>
             ) : null}
 
             {activeTab === "hermes" ? (
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-ink">Hermes 설정</h3>
+                <h3 className="text-sm font-semibold text-ink">Hermes</h3>
                 <div className="rounded-md border border-line bg-white p-4 text-sm leading-6 text-stone-700">
                   <p>설치 상태: {hermesInstallStatus}</p>
                   <p>연결 상태: {runtimeLabel}</p>
@@ -218,7 +204,7 @@ export function ExecutionPanel() {
                 </div>
                 <button onClick={openHermesOnboarding} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss">
                   <Settings2 className="h-4 w-4" />
-                  Hermes 설정 마법사 열기
+                  Hermes 준비 체크리스트 열기
                 </button>
               </div>
             ) : null}
@@ -227,7 +213,7 @@ export function ExecutionPanel() {
           <div className="border-t border-line p-4">
             <button onClick={runNextStep} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss">
               <Play className="h-4 w-4" />
-              다음 단계 실행
+              Hermes 실행
             </button>
           </div>
         </section>

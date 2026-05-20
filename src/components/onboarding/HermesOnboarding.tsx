@@ -6,10 +6,10 @@ import { useQarkoStore } from "../../store/useQarkoStore";
 import { StatusBadge } from "../ui/StatusBadge";
 
 const steps = [
-  { id: "install", label: "Install" },
-  { id: "provider", label: "Provider" },
-  { id: "auth", label: "Auth / Model" },
-  { id: "test", label: "Check" },
+  { id: "install", label: "Hermes 설치" },
+  { id: "provider", label: "모델 제공자" },
+  { id: "auth", label: "인증 / 모델" },
+  { id: "test", label: "연결 확인" },
 ];
 
 export function HermesOnboarding() {
@@ -63,13 +63,13 @@ export function HermesOnboarding() {
       <section className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-md border border-line bg-white shadow-xl">
         <div className="flex items-start justify-between gap-4 border-b border-line p-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-normal text-moss">Hermes setup wizard</p>
-            <h2 className="mt-1 text-2xl font-bold text-ink">Connect Hermes to QARKO OS</h2>
+            <p className="text-xs font-semibold uppercase tracking-normal text-moss">준비 체크리스트</p>
+            <h2 className="mt-1 text-2xl font-bold text-ink">Hermes를 QARKO OS에 연결하기</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-              Use the native Hermes setup/auth terminal when Hermes needs interactive model selection, URLs, or device codes.
+              설치, 모델 제공자, 인증, 테스트 실행까지 이 화면에서 끝냅니다. Hermes가 대화형 설정을 요구할 때만 별도 인증 터미널을 엽니다.
             </p>
           </div>
-          <button onClick={dismissHermesOnboarding} className="rounded-md border border-line p-2 text-stone-500 hover:bg-panel hover:text-ink" aria-label="Close">
+          <button onClick={dismissHermesOnboarding} className="rounded-md border border-line p-2 text-stone-500 hover:bg-panel hover:text-ink" aria-label="닫기">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -96,7 +96,7 @@ export function HermesOnboarding() {
               })}
             </div>
             <div className="mt-5 rounded-md bg-white p-3 text-xs leading-5 text-stone-600">
-              QARKO does not force one model provider. Choose the provider and model that match the user's account and budget.
+              완료 후에는 작업실에서 바로 “오늘 할 작업”을 입력하고 Hermes 실행 결과를 확인할 수 있습니다.
             </div>
           </aside>
 
@@ -105,37 +105,40 @@ export function HermesOnboarding() {
               <div className="space-y-4">
                 <div className="rounded-md bg-panel p-4">
                   <div className="mb-2 flex items-center gap-2">
-                    <StatusBadge tone={installed ? "completed" : needsRepair ? "failed" : installing ? "running" : "planned"} label={installed ? "Installed" : installing ? "Installing" : needsRepair ? "Repair needed" : "Not checked"} />
-                    <span className="text-sm font-semibold text-ink">Hermes status</span>
+                    <StatusBadge tone={installed ? "completed" : needsRepair ? "failed" : installing ? "running" : "planned"} label={installed ? "설치 완료" : installing ? "설치 중" : needsRepair ? "복구 필요" : "확인 필요"} />
+                    <span className="text-sm font-semibold text-ink">Hermes 설치 상태</span>
                   </div>
                   <p className="text-sm leading-6 text-stone-700">{hermesInstallMessage}</p>
                   <p className="mt-2 text-xs leading-5 text-stone-600">
-                    Verified channel: {hermesInstallPlan.label}. Advanced users can continue with the native Hermes setup wizard.
+                    검증 채널: {hermesInstallPlan.label}. QARKO가 확인한 Hermes만 작업 실행에 사용합니다.
                   </p>
                   {hermesExecutablePath ? <p className="mt-2 break-all text-xs text-stone-500">{hermesExecutablePath}</p> : null}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <button onClick={installHermesDesktop} disabled={installing} className="inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-60">
                     <PlugZap className="h-4 w-4" />
-                    {needsRepair ? "Repair Hermes" : "Install Hermes"}
-                  </button>
-                  <button onClick={() => openHermesSetupWizard()} disabled={!installed} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50">
-                    <ExternalLink className="h-4 w-4" />
-                    Open setup
+                    {needsRepair ? "Hermes 복구" : "Hermes 설치"}
                   </button>
                   <button onClick={checkHermesInstall} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel">
                     <CheckCircle2 className="h-4 w-4" />
-                    Check install
+                    설치 확인
+                  </button>
+                  <button onClick={() => openHermesSetupWizard()} disabled={!installed} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50">
+                    <ExternalLink className="h-4 w-4" />
+                    고급 setup 열기
                   </button>
                 </div>
+                <p className="text-xs leading-5 text-stone-500">
+                  고급 setup은 Hermes가 대화형 설정을 요구할 때만 사용합니다. 일반 사용자는 아래 단계에서 제공자와 모델을 고르면 됩니다.
+                </p>
               </div>
             ) : null}
 
             {stepIndex === 1 ? (
               <div className="space-y-4">
                 <div>
-                  <h3 className="text-lg font-bold text-ink">Choose provider</h3>
-                  <p className="mt-1 text-sm leading-6 text-stone-600">Pick the account or API provider Hermes should use.</p>
+                  <h3 className="text-lg font-bold text-ink">모델 제공자 선택</h3>
+                  <p className="mt-1 text-sm leading-6 text-stone-600">사용자의 계정과 예산에 맞는 Hermes 모델 제공자를 선택합니다.</p>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   {hermesProviderOptions.map((option) => {
@@ -144,10 +147,10 @@ export function HermesOnboarding() {
                       <button key={option.id} onClick={() => updateHermesSetupProvider(option.id)} className={`rounded-md border p-4 text-left transition ${active ? "border-signal bg-panel shadow-sm" : "border-line bg-white hover:bg-panel"}`}>
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <span className="text-sm font-bold text-ink">{option.label}</span>
-                          <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-moss">{option.authType}</span>
+                          <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-moss">{option.authType === "oauth" ? "OAuth" : "API 키"}</span>
                         </div>
                         <p className="text-sm leading-6 text-stone-600">{option.summary}</p>
-                        <p className="mt-2 break-all text-xs text-stone-500">Default model: {option.defaultModel}</p>
+                        <p className="mt-2 break-all text-xs text-stone-500">기본 모델: {option.defaultModel}</p>
                       </button>
                     );
                   })}
@@ -164,11 +167,11 @@ export function HermesOnboarding() {
 
                 {isOauth ? (
                   <div className="rounded-md border border-line bg-panel p-4 text-sm leading-6 text-stone-700">
-                    <p className="font-semibold text-ink">OAuth login</p>
-                    <p className="mt-1">This opens a visible Hermes terminal. Follow the URL or device code shown there, then return to QARKO and check auth status.</p>
+                    <p className="font-semibold text-ink">OAuth 인증</p>
+                    <p className="mt-1">인증 터미널을 열고 표시되는 주소나 코드를 따라 로그인하세요. 완료 후 QARKO로 돌아와 연결 확인을 누르면 됩니다.</p>
                     <button onClick={loginHermesOAuthProvider} disabled={!installed || loggingIn} className="mt-3 inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50">
                       <ExternalLink className="h-4 w-4" />
-                      {loggingIn ? "Opening..." : "Open auth terminal"}
+                      {loggingIn ? "여는 중..." : "인증 터미널 열기"}
                     </button>
                     <p className="mt-3 text-xs leading-5 text-stone-600">{hermesAuthMessage}</p>
                   </div>
@@ -176,7 +179,7 @@ export function HermesOnboarding() {
 
                 <div className="grid gap-4">
                   <div>
-                    <p className="text-sm font-semibold text-ink">Model</p>
+                    <p className="text-sm font-semibold text-ink">모델 선택</p>
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       {selectedProvider.modelOptions.map((model) => {
                         const active = hermesConnection.modelName === model.id;
@@ -191,24 +194,24 @@ export function HermesOnboarding() {
                   </div>
 
                   <label className="grid gap-2 text-sm font-semibold text-ink">
-                    Custom model name
+                    직접 모델명 입력
                     <input value={hermesConnection.modelName} onChange={(event) => updateHermesConnection({ modelName: event.target.value })} placeholder={selectedProvider.defaultModel} className="rounded-md border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-signal" />
                   </label>
 
                   {selectedProvider.authType !== "oauth" ? (
                     <label className="grid gap-2 text-sm font-semibold text-ink">
-                      {selectedProvider.keyLabel ?? "API Key"}
+                      {selectedProvider.keyLabel ?? "API 키"}
                       <div className="relative">
                         <KeyRound className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-moss" />
-                        <input type="password" value={hermesConnection.apiKey} onChange={(event) => updateHermesConnection({ apiKey: event.target.value })} placeholder="Enter API key" className="w-full rounded-md border border-line bg-white py-3 pl-10 pr-3 text-sm text-ink outline-none focus:border-signal" />
+                        <input type="password" value={hermesConnection.apiKey} onChange={(event) => updateHermesConnection({ apiKey: event.target.value })} placeholder="API 키 입력" className="w-full rounded-md border border-line bg-white py-3 pl-10 pr-3 text-sm text-ink outline-none focus:border-signal" />
                       </div>
-                      <span className="text-xs font-normal leading-5 text-stone-500">The key is kept in the current app session only. Re-enter it after reopening QARKO OS.</span>
+                      <span className="text-xs font-normal leading-5 text-stone-500">API 키는 현재 앱 세션에서만 사용합니다. 앱을 다시 열면 다시 입력해야 합니다.</span>
                     </label>
                   ) : null}
 
                   {selectedProvider.authType === "custom-endpoint" ? (
                     <label className="grid gap-2 text-sm font-semibold text-ink">
-                      API base URL
+                      API 주소
                       <div className="relative">
                         <Server className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-moss" />
                         <input value={hermesConnection.endpoint} onChange={(event) => updateHermesConnection({ endpoint: event.target.value })} placeholder={selectedProvider.defaultEndpoint} className="w-full rounded-md border border-line bg-white py-3 pl-10 pr-3 text-sm text-ink outline-none focus:border-signal" />
@@ -220,11 +223,11 @@ export function HermesOnboarding() {
                 <div className="flex flex-wrap gap-2">
                   <button onClick={saveHermesGuidedSetup} disabled={!canSave} className="inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50">
                     <ShieldCheck className="h-4 w-4" />
-                    Save model settings
+                    모델 설정 저장
                   </button>
                   <button onClick={() => openHermesSetupWizard("model")} disabled={!installed} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50">
                     <ExternalLink className="h-4 w-4" />
-                    Open Hermes model setup
+                    Hermes 모델 setup 열기
                   </button>
                 </div>
                 {hermesSetupOutput ? <pre className="max-h-36 overflow-auto rounded-md bg-panel p-3 text-xs leading-5 text-stone-600">{hermesSetupOutput}</pre> : null}
@@ -234,21 +237,21 @@ export function HermesOnboarding() {
             {stepIndex === 3 ? (
               <div className="space-y-4">
                 <div>
-                  <h3 className="text-lg font-bold text-ink">Check connection</h3>
-                  <p className="mt-1 text-sm leading-6 text-stone-600">After finishing Hermes setup/auth, verify the current provider and model before starting real work.</p>
+                  <h3 className="text-lg font-bold text-ink">연결 확인</h3>
+                  <p className="mt-1 text-sm leading-6 text-stone-600">설치와 인증이 끝났다면 실제 작업 전에 현재 제공자와 모델을 확인합니다.</p>
                 </div>
                 <div className="rounded-md border border-line bg-panel p-4 text-sm leading-6 text-stone-700">
-                  <p><span className="font-semibold text-ink">Provider:</span> {selectedProvider.label}</p>
-                  <p><span className="font-semibold text-ink">Model:</span> {hermesConnection.modelName || "Not set"}</p>
-                  <p><span className="font-semibold text-ink">Auth:</span> {isOauth ? "OAuth" : hermesConnection.apiKey ? "API key entered" : "No API key"}</p>
+                  <p><span className="font-semibold text-ink">제공자:</span> {selectedProvider.label}</p>
+                  <p><span className="font-semibold text-ink">모델:</span> {hermesConnection.modelName || "미입력"}</p>
+                  <p><span className="font-semibold text-ink">인증:</span> {isOauth ? "OAuth" : hermesConnection.apiKey ? "API 키 입력됨" : "API 키 없음"}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button onClick={testHermesRuntime} className="inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss">
                     <CheckCircle2 className="h-4 w-4" />
-                    {isOauth ? "Check auth status" : "Test connection"}
+                    {isOauth ? "인증 상태 확인" : "연결 테스트"}
                   </button>
                   <button onClick={dismissHermesOnboarding} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel">
-                    Start QARKO OS
+                    작업실 시작
                   </button>
                 </div>
               </div>
@@ -258,10 +261,10 @@ export function HermesOnboarding() {
 
         <div className="flex flex-wrap justify-between gap-2 border-t border-line p-4">
           <button onClick={() => setStepIndex((value) => Math.max(0, value - 1))} disabled={stepIndex === 0} className="rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50">
-            Back
+            이전
           </button>
           <button onClick={() => setStepIndex((value) => Math.min(steps.length - 1, value + 1))} disabled={stepIndex === steps.length - 1} className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50">
-            Next
+            다음
           </button>
         </div>
       </section>

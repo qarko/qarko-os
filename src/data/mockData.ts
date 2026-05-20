@@ -29,6 +29,46 @@ export const defaultRules: ApprovalRule[] = [
   { id: "community-share", label: "커뮤니티 공유", description: "워크플로, 플러그인, 템플릿 공개 공유", requiresApproval: true, risk: "medium" },
 ];
 
+export const sandboxModeOptions = [
+  {
+    id: "manual",
+    label: "보기/초안 모드",
+    summary: "AI가 계획, 글, 체크리스트만 만들고 파일 변경이나 외부 실행은 하지 않습니다.",
+    explanation: "처음 쓰는 사용자가 가장 안심하고 시작할 수 있는 모드입니다.",
+  },
+  {
+    id: "assisted",
+    label: "샌드박스(안전 승인 모드)",
+    summary: "AI가 QARKO 프로젝트 안에서 작업하고, 위험 작업은 승인 대기 목록에 올린 뒤 진행합니다.",
+    explanation: "베타에서는 승인 UX와 검증된 Hermes 실행 파일을 중심으로 보호합니다. OS 수준 파일 격리는 상용화 전 추가 예정입니다.",
+  },
+  {
+    id: "automation",
+    label: "자동 실행 모드",
+    summary: "반복 작업은 자동 실행하되, 게시/결제/삭제/운영 설정 변경은 승인 후 진행합니다.",
+    explanation: "숙련 사용자가 베타 이후 점진적으로 켤 수 있는 고급 모드입니다.",
+  },
+] as const;
+
+export const hermesStrengths = [
+  {
+    title: "모델 자유도",
+    description: "Nous Portal, OpenRouter, OpenAI 호환 API, 로컬/커스텀 엔드포인트처럼 사용자의 환경에 맞는 모델을 선택합니다.",
+  },
+  {
+    title: "도구와 툴셋",
+    description: "Hermes의 tools/toolsets 개념을 QARKO 작업실에서 쉬운 권한 선택과 실행 로그로 보여줍니다.",
+  },
+  {
+    title: "스킬과 메모리",
+    description: "반복되는 사업 작업은 스킬처럼 정리하고, 프로젝트 맥락은 다음 작업에서 다시 활용할 수 있게 설계합니다.",
+  },
+  {
+    title: "에이전트 실행",
+    description: "단순 채팅이 아니라 조사, 작성, 검토, 승인 요청을 단계별 실행 흐름으로 다룹니다.",
+  },
+];
+
 export const automationPolicies: AutomationPolicy[] = [
   {
     mode: "manual",

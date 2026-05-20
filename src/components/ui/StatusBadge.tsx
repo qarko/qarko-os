@@ -31,7 +31,7 @@ const labelMap: Record<Tone, string> = {
   medium: "중간",
   high: "높음",
   critical: "치명적",
-  mock: "Mock",
+  mock: "미리보기",
   connected: "연결됨",
   not_connected: "미연결",
 };
