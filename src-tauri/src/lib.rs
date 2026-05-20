@@ -208,6 +208,62 @@ fn api_key_name_for_provider(provider: &str) -> Option<&'static str> {
     }
 }
 
+struct HermesProviderConfig {
+    provider: &'static str,
+    base_url: Option<&'static str>,
+    api_mode: Option<&'static str>,
+}
+
+fn hermes_provider_config(provider: &str) -> Option<HermesProviderConfig> {
+    match provider {
+        "openai-codex" => Some(HermesProviderConfig {
+            provider: "openai-codex",
+            base_url: Some("https://chatgpt.com/backend-api/codex"),
+            api_mode: None,
+        }),
+        "openai" => Some(HermesProviderConfig {
+            provider: "openai",
+            base_url: Some("https://api.openai.com/v1"),
+            api_mode: Some("chat_completions"),
+        }),
+        "openrouter" => Some(HermesProviderConfig {
+            provider: "openrouter",
+            base_url: Some("https://openrouter.ai/api/v1"),
+            api_mode: Some("chat_completions"),
+        }),
+        "anthropic" => Some(HermesProviderConfig {
+            provider: "anthropic",
+            base_url: Some("https://api.anthropic.com"),
+            api_mode: None,
+        }),
+        "nous" => Some(HermesProviderConfig {
+            provider: "nous",
+            base_url: None,
+            api_mode: None,
+        }),
+        "deepseek" => Some(HermesProviderConfig {
+            provider: "deepseek",
+            base_url: Some("https://api.deepseek.com/v1"),
+            api_mode: Some("chat_completions"),
+        }),
+        "google" => Some(HermesProviderConfig {
+            provider: "gemini",
+            base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+            api_mode: Some("chat_completions"),
+        }),
+        "custom" => Some(HermesProviderConfig {
+            provider: "custom",
+            base_url: None,
+            api_mode: Some("chat_completions"),
+        }),
+        _ => None,
+    }
+}
+
+fn set_hermes_config(hermes: &PathBuf, key: &str, value: &str) -> Result<CommandResult, String> {
+    run_hidden_command(Command::new(hermes).args(["config", "set", key, value]))
+}
+
 #[tauri::command]
 fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String> {
     let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent가 아직 설치되지 않았습니다.".to_string())?;
@@ -215,19 +271,12 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
     if model.is_empty() {
         return Err("모델명을 입력하세요.".to_string());
     }
+    let provider = request.provider.trim();
+    let provider_config = hermes_provider_config(provider)
+        .ok_or_else(|| "지원하지 않는 Hermes 제공자입니다.".to_string())?;
 
     let mut outputs = Vec::new();
-    let model_result = run_hidden_command(Command::new(&hermes).args(["config", "set", "model", model]))?;
-    outputs.push(model_result.output);
-    if !model_result.ok {
-        return Ok(CommandResult {
-            ok: false,
-            message: "Hermes 모델 설정에 실패했습니다.".to_string(),
-            output: outputs.join("\n"),
-        });
-    }
-
-    if api_key_name_for_provider(request.provider.trim()).is_some() && !request.api_key.trim().is_empty() {
+    if api_key_name_for_provider(provider).is_some() && !request.api_key.trim().is_empty() {
         return Ok(CommandResult {
             ok: false,
             message: "보안을 위해 API 키를 Hermes CLI 명령 인자로 저장하지 않습니다. 키는 연결 테스트에만 임시 사용됩니다.".to_string(),
@@ -235,27 +284,44 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
         });
     }
 
-    if request.provider.trim() == "custom" {
-        let endpoint = request.endpoint.trim();
-        if !endpoint.is_empty() {
-            let endpoint_result = run_hidden_command(Command::new(&hermes).args(["config", "set", "model.base_url", endpoint]))?;
-            outputs.push(endpoint_result.output);
-            if !endpoint_result.ok {
-                return Ok(CommandResult {
-                    ok: false,
-                    message: "Hermes custom endpoint 저장에 실패했습니다.".to_string(),
-                    output: outputs.join("\n"),
-                });
-            }
-        }
-
-        if !request.api_key.trim().is_empty() {
+    for (key, value, error_message) in [
+        ("model.default", model, "Hermes 모델 저장에 실패했습니다."),
+        ("model.provider", provider_config.provider, "Hermes 제공자 저장에 실패했습니다."),
+    ] {
+        let result = set_hermes_config(&hermes, key, value)?;
+        outputs.push(result.output);
+        if !result.ok {
             return Ok(CommandResult {
                 ok: false,
-                message: "보안을 위해 API 키를 Hermes CLI 명령 인자로 저장하지 않습니다. 키는 연결 테스트에만 임시 사용됩니다.".to_string(),
+                message: error_message.to_string(),
                 output: outputs.join("\n"),
             });
         }
+    }
+
+    let endpoint = if provider == "custom" {
+        request.endpoint.trim()
+    } else {
+        provider_config.base_url.unwrap_or("")
+    };
+    let endpoint_result = set_hermes_config(&hermes, "model.base_url", endpoint)?;
+    outputs.push(endpoint_result.output);
+    if !endpoint_result.ok {
+        return Ok(CommandResult {
+            ok: false,
+            message: "Hermes API 주소 저장에 실패했습니다.".to_string(),
+            output: outputs.join("\n"),
+        });
+    }
+
+    let api_mode_result = set_hermes_config(&hermes, "model.api_mode", provider_config.api_mode.unwrap_or(""))?;
+    outputs.push(api_mode_result.output);
+    if !api_mode_result.ok {
+        return Ok(CommandResult {
+            ok: false,
+            message: "Hermes API 모드 저장에 실패했습니다.".to_string(),
+            output: outputs.join("\n"),
+        });
     }
 
     Ok(CommandResult {
@@ -274,23 +340,25 @@ fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, S
     let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent가 아직 설치되지 않았습니다.".to_string())?;
     let provider = request.provider.trim();
     let allowed_provider = match provider {
-        "nous" | "openai-codex" | "xai-oauth" => provider,
+        "nous" | "openai-codex" | "xai-oauth" | "qwen-oauth" | "google-gemini-cli" | "minimax-oauth" => provider,
         _ => return Err("이 제공자는 QARKO OS OAuth 로그인에서 아직 지원하지 않습니다.".to_string()),
     };
 
     let result = run_hidden_command(Command::new(&hermes).args([
-        "login",
-        "--provider",
+        "auth",
+        "add",
         allowed_provider,
+        "--type",
+        "oauth",
         "--timeout",
-        "180",
+        "240",
     ]))?;
 
     if result.ok {
         Ok(CommandResult {
             ok: true,
-            message: "Hermes OAuth 로그인이 완료되었습니다.".to_string(),
-            output: result.output,
+            message: "Hermes OAuth 인증이 완료되었습니다. 이제 사용할 모델을 선택하고 저장하세요.".to_string(),
+            output: "OAuth 인증 명령이 완료되었습니다. 보안을 위해 인증 출력 원문은 표시하지 않습니다.".to_string(),
         })
     } else {
         Ok(CommandResult {
