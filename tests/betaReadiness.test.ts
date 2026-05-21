@@ -10,6 +10,8 @@ test("beta workspace starts without seeded sample projects", () => {
   assert.match(storeSource, /projects:\s*\[\]/);
   assert.match(storeSource, /selectedProjectId:\s*""/);
   assert.match(storeSource, /view:\s*"workspace"/);
+  assert.match(storeSource, /showHermesOnboarding:\s*false/);
+  assert.match(storeSource, /merge:[\s\S]*showHermesOnboarding:\s*false/);
   assert.match(storeSource, /approvals:\s*\[\]/);
   assert.match(storeSource, /artifacts:\s*\[\]/);
   assert.match(storeSource, /qarko-os-workspace-v4/);
@@ -47,6 +49,7 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(rustSource, /fn configure_hermes[\s\S]*verified_hermes_executable\(\)\?/);
   assert.match(rustSource, /fn check_hermes_auth_status[\s\S]*verified_hermes_executable\(\)\?/);
   assert.match(rustSource, /open_hermes_setup_terminal/);
+  assert.match(rustSource, /open_hermes_login_terminal/);
   assert.match(rustSource, /login_hermes_provider/);
   assert.match(rustSource, /check_hermes_auth_status/);
   assert.match(rustSource, /write_hermes_verified_marker/);
@@ -54,6 +57,14 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(rustSource, /file_sha256_hex/);
   assert.match(rustSource, /Stdio::piped/);
   assert.match(rustSource, /qarko-hermes-prompt/);
+  assert.match(rustSource, /qarko_workspace_dir/);
+  assert.match(rustSource, /toolsets/);
+  assert.match(storeSource, /toolsetsForHermesPreset/);
+  assert.doesNotMatch(storeSource, /toolsetsForAutomationMode/);
+  assert.match(rustSource, /current_dir\(&workspace_dir\)/);
+  assert.match(desktopAdapter, /HermesHealthReport/);
+  assert.match(desktopAdapter, /configureHermesToolPreset/);
+  assert.match(desktopAdapter, /workspacePath\?: string/);
   assert.match(storeSource, /feedback|reviewNotes/);
   assert.match(storeSource, /isTrustedSyncEndpoint/);
   assert.match(storeSource, /current\.activeRun\.id !== runId/);
@@ -67,13 +78,14 @@ test("QARKO beta uses Korean workbench-first Hermes onboarding", () => {
   const typeSource = readFileSync("src/types/qarko.ts", "utf8");
   const storeSource = readFileSync("src/store/useQarkoStore.ts", "utf8");
 
-  assert.match(onboardingSource, /준비 체크리스트/);
-  assert.match(onboardingSource, /Hermes 설치/);
-  assert.match(onboardingSource, /모델 제공자/);
-  assert.match(onboardingSource, /인증 터미널/);
-  assert.match(onboardingSource, /대화형 설정을 요구할 때만/);
+  assert.match(onboardingSource, /Hermes 작업실 준비/);
+  assert.match(onboardingSource, /작업 엔진/);
+  assert.match(onboardingSource, /전체 점검 실행/);
+  assert.match(onboardingSource, /브라우저 로그인 시작/);
+  assert.match(onboardingSource, /업무 능력 프리셋/);
   assert.doesNotMatch(onboardingSource, /Hermes setup wizard/);
   assert.doesNotMatch(onboardingSource, /Open auth terminal/);
+  assert.doesNotMatch(onboardingSource, /인증 터미널/);
 
   assert.match(typeSource + mockDataSource + storeSource + dashboardSource, /샌드박스\(안전 승인 모드\)/);
   assert.match(typeSource + mockDataSource + dashboardSource + executionPanel, /OS 수준 파일 격리/);

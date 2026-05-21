@@ -204,7 +204,7 @@ export function ExecutionPanel() {
                 </div>
                 <button onClick={openHermesOnboarding} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss">
                   <Settings2 className="h-4 w-4" />
-                  Hermes 준비 체크리스트 열기
+                  Hermes 작업실 준비 열기
                 </button>
               </div>
             ) : null}

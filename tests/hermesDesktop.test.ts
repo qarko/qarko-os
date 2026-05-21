@@ -51,3 +51,21 @@ test("Hermes desktop metadata matches the Rust installer command constants", () 
   assert.match(rustSource, new RegExp(`HERMES_INSTALL_COMMIT: &str = "${plan.hermesCommit}"`));
   assert.match(rustSource, new RegExp(`HERMES_INSTALL_SHA256: &str = "${plan.installScriptSha256}"`));
 });
+
+test("HermesAdapter keeps setup hidden behind health, tools, auth, and workspace execution commands", () => {
+  const desktopAdapter = readFileSync("src/adapters/hermesDesktop.ts", "utf8");
+  const rustSource = readFileSync("src-tauri/src/lib.rs", "utf8");
+
+  assert.match(desktopAdapter, /getHermesHealthReport/);
+  assert.match(desktopAdapter, /configureHermesToolPreset/);
+  assert.match(desktopAdapter, /openHermesLoginTerminal/);
+  assert.match(rustSource, /fn hermes_health/);
+  assert.match(rustSource, /fn configure_hermes_tool_preset/);
+  assert.match(rustSource, /fn open_hermes_login_terminal/);
+  assert.match(rustSource, /"work" \| "automation" => vec!\["web", "file", "skills", "memory", "session_search", "todo"\]/);
+  assert.match(rustSource, /security\.redact_secrets/);
+  assert.match(rustSource, /privacy\.redact_pii/);
+  assert.match(rustSource, /qarko_workspace_dir/);
+  assert.match(rustSource, /sanitize_workspace_segment/);
+  assert.match(rustSource, /command\.args\(\["-t", toolsets\.as_str\(\)\]\)/);
+});

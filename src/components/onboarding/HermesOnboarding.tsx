@@ -1,4 +1,4 @@
-import { CheckCircle2, ExternalLink, KeyRound, PlugZap, Server, ShieldCheck, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, KeyRound, PlugZap, Server, ShieldCheck, Wrench, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getHermesVerifiedInstallPlan } from "../../adapters/hermesDesktop";
 import { hermesProviderOptions } from "../../data/hermesProviders";
@@ -20,14 +20,19 @@ export function HermesOnboarding() {
     hermesAuthStatus,
     hermesConnection,
     hermesExecutablePath,
+    hermesHealth,
     hermesInstallMessage,
     hermesInstallStatus,
     hermesSetupOutput,
     hermesSetupProvider,
+    hermesToolPreset,
     installHermesDesktop,
     loginHermesOAuthProvider,
+    openHermesLoginFallback,
     openHermesSetupWizard,
+    refreshHermesHealth,
     saveHermesGuidedSetup,
+    saveHermesToolPreset,
     showHermesOnboarding,
     testHermesRuntime,
     updateHermesConnection,
@@ -63,10 +68,10 @@ export function HermesOnboarding() {
       <section className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-md border border-line bg-white shadow-xl">
         <div className="flex items-start justify-between gap-4 border-b border-line p-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-normal text-moss">준비 체크리스트</p>
-            <h2 className="mt-1 text-2xl font-bold text-ink">Hermes를 QARKO OS에 연결하기</h2>
+            <p className="text-xs font-semibold uppercase tracking-normal text-moss">Hermes 작업실 준비</p>
+            <h2 className="mt-1 text-2xl font-bold text-ink">터미널 없이 Hermes를 작업 엔진으로 연결하기</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-              설치, 모델 제공자, 인증, 테스트 실행까지 이 화면에서 끝냅니다. Hermes가 대화형 설정을 요구할 때만 별도 인증 터미널을 엽니다.
+              QARKO OS가 모델, 인증, 업무 능력, 시스템 점검을 UI로 처리합니다. 원본 Hermes setup은 문제가 생긴 경우에만 고급 fallback으로 엽니다.
             </p>
           </div>
           <button onClick={dismissHermesOnboarding} className="rounded-md border border-line p-2 text-stone-500 hover:bg-panel hover:text-ink" aria-label="닫기">
@@ -129,8 +134,24 @@ export function HermesOnboarding() {
                   </button>
                 </div>
                 <p className="text-xs leading-5 text-stone-500">
-                  고급 setup은 Hermes가 대화형 설정을 요구할 때만 사용합니다. 일반 사용자는 아래 단계에서 제공자와 모델을 고르면 됩니다.
+                  고급 setup은 자동 복구가 실패했거나 원본 Hermes 설정을 직접 확인해야 할 때만 사용합니다.
                 </p>
+                <div className="rounded-md border border-line bg-white p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-ink">시스템 점검</p>
+                      <p className="mt-1 text-xs leading-5 text-stone-600">config, env, doctor, status, tools 상태를 QARKO가 확인합니다.</p>
+                    </div>
+                    <StatusBadge tone={hermesHealth.ok ? "completed" : "planned"} label={hermesHealth.ok ? "정상" : "대기"} />
+                  </div>
+                  <button onClick={refreshHermesHealth} disabled={!installed} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-panel px-4 py-2 text-sm font-semibold text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">
+                    <CheckCircle2 className="h-4 w-4" />
+                    전체 점검 실행
+                  </button>
+                  <p className="mt-3 text-xs leading-5 text-stone-600">{hermesHealth.message}</p>
+                  {hermesHealth.configPath ? <p className="mt-2 break-all text-xs text-stone-500">config: {hermesHealth.configPath}</p> : null}
+                  {hermesHealth.envPath ? <p className="break-all text-xs text-stone-500">env: {hermesHealth.envPath}</p> : null}
+                </div>
               </div>
             ) : null}
 
@@ -168,11 +189,16 @@ export function HermesOnboarding() {
                 {isOauth ? (
                   <div className="rounded-md border border-line bg-panel p-4 text-sm leading-6 text-stone-700">
                     <p className="font-semibold text-ink">OAuth 인증</p>
-                    <p className="mt-1">인증 터미널을 열고 표시되는 주소나 코드를 따라 로그인하세요. 완료 후 QARKO로 돌아와 연결 확인을 누르면 됩니다.</p>
-                    <button onClick={loginHermesOAuthProvider} disabled={!installed || loggingIn} className="mt-3 inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50">
-                      <ExternalLink className="h-4 w-4" />
-                      {loggingIn ? "여는 중..." : "인증 터미널 열기"}
-                    </button>
+                    <p className="mt-1">QARKO가 Hermes guided login을 시작합니다. 브라우저에서 로그인을 완료한 뒤 이 화면에서 인증 상태를 확인하세요.</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button onClick={loginHermesOAuthProvider} disabled={!installed || loggingIn} className="inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50">
+                        <ExternalLink className="h-4 w-4" />
+                        {loggingIn ? "시작 중..." : "브라우저 로그인 시작"}
+                      </button>
+                      <button onClick={openHermesLoginFallback} disabled={!installed} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50">
+                        로그인 창으로 열기
+                      </button>
+                    </div>
                     <p className="mt-3 text-xs leading-5 text-stone-600">{hermesAuthMessage}</p>
                   </div>
                 ) : null}
@@ -227,8 +253,29 @@ export function HermesOnboarding() {
                   </button>
                   <button onClick={() => openHermesSetupWizard("model")} disabled={!installed} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50">
                     <ExternalLink className="h-4 w-4" />
-                    Hermes 모델 setup 열기
+                    고급 모델 setup 열기
                   </button>
+                </div>
+                <div className="rounded-md border border-line bg-white p-4">
+                  <p className="text-sm font-semibold text-ink">업무 능력 프리셋</p>
+                  <p className="mt-1 text-xs leading-5 text-stone-600">Hermes toolsets를 초보자용 이름으로 묶습니다. 새 작업부터 적용됩니다.</p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    {[
+                      ["safe", "안전 모드", "웹 조사, 파일 작성, 스킬, 기억"],
+                      ["work", "작업 모드", "웹 조사, 파일 작성, 반복 작업 기억"],
+                      ["developer", "개발자 모드", "코드, 브라우저, 하위 에이전트"],
+                    ].map(([mode, label, description]) => (
+                      <button
+                        key={mode}
+                        onClick={() => saveHermesToolPreset(mode as "safe" | "work" | "developer")}
+                        className={`rounded-md border p-3 text-left text-xs leading-5 ${hermesToolPreset === mode ? "border-signal bg-panel" : "border-line bg-white hover:bg-panel"}`}
+                      >
+                        <Wrench className="mb-2 h-4 w-4 text-signal" />
+                        <span className="block font-bold text-ink">{label}</span>
+                        <span className="mt-1 block text-stone-600">{description}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {hermesSetupOutput ? <pre className="max-h-36 overflow-auto rounded-md bg-panel p-3 text-xs leading-5 text-stone-600">{hermesSetupOutput}</pre> : null}
               </div>

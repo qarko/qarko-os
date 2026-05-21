@@ -15,6 +15,7 @@ export type RuntimeStatus = "connected" | "not_connected" | "mock";
 export type SyncStatus = "idle" | "syncing" | "synced" | "error";
 export type HermesStatus = "not_configured" | "testing" | "connected" | "error";
 export type HermesInstallStatus = "unknown" | "installed" | "missing" | "installing" | "error";
+export type HermesToolPreset = "safe" | "work" | "developer" | "automation";
 
 export interface Workspace {
   id: string;
@@ -191,6 +192,16 @@ export interface HermesConnectionResult {
   message: string;
   modelName?: string;
   availableModels: string[];
+}
+
+export interface HermesHealthSnapshot {
+  ok: boolean;
+  configPath?: string;
+  envPath?: string;
+  statusOutput: string;
+  doctorOutput: string;
+  toolsOutput: string;
+  message: string;
 }
 
 export interface WorkspaceSnapshot {

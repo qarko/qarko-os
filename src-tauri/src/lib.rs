@@ -45,11 +45,20 @@ struct HermesLoginRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct HermesToolPresetRequest {
+    mode: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct HermesOneShotRequest {
     prompt: String,
     model_name: String,
     provider: String,
     api_key: String,
+    project_id: Option<String>,
+    run_id: Option<String>,
+    toolsets: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -58,6 +67,18 @@ struct CommandResult {
     ok: bool,
     message: String,
     output: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HermesHealthReport {
+    ok: bool,
+    config_path: Option<String>,
+    env_path: Option<String>,
+    status_output: String,
+    doctor_output: String,
+    tools_output: String,
+    message: String,
 }
 
 fn hermes_candidate_paths() -> Vec<PathBuf> {
@@ -79,6 +100,36 @@ fn qarko_local_app_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| env::temp_dir())
         .join("QARKO OS")
+}
+
+fn qarko_workspace_root() -> PathBuf {
+    env::var("USERPROFILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| qarko_local_app_dir())
+        .join("QARKO")
+        .join("workspaces")
+}
+
+fn sanitize_workspace_segment(value: &str) -> String {
+    let cleaned = value
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    if cleaned.is_empty() {
+        "default".to_string()
+    } else {
+        cleaned.chars().take(64).collect()
+    }
+}
+
+fn qarko_workspace_dir(project_id: Option<String>, run_id: Option<String>) -> Result<PathBuf, String> {
+    let project = sanitize_workspace_segment(project_id.as_deref().unwrap_or("project"));
+    let run = sanitize_workspace_segment(run_id.as_deref().unwrap_or("run"));
+    let dir = qarko_workspace_root().join(project).join(run);
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir)
 }
 
 fn hermes_verification_marker_path() -> PathBuf {
@@ -443,6 +494,22 @@ fn set_hermes_config(hermes: &PathBuf, key: &str, value: &str) -> Result<Command
     run_hidden_command(Command::new(hermes).args(["config", "set", key, value]))
 }
 
+fn run_optional_hermes_command(hermes: &PathBuf, args: &[&str]) -> CommandResult {
+    run_hidden_command(Command::new(hermes).args(args)).unwrap_or_else(|error| CommandResult {
+        ok: false,
+        message: error,
+        output: String::new(),
+    })
+}
+
+fn command_output_or_empty(result: &CommandResult) -> String {
+    if result.output.is_empty() {
+        result.message.clone()
+    } else {
+        result.output.clone()
+    }
+}
+
 fn cmd_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\\\""))
 }
@@ -486,6 +553,86 @@ fn open_hermes_setup_terminal(section: Option<String>) -> Result<CommandResult, 
         ok: true,
         message: "Hermes setup terminal opened. Use the visible window to choose models and settings.".to_string(),
         output: "Visible terminal launched for hermes setup.".to_string(),
+    })
+}
+
+#[tauri::command]
+fn hermes_health() -> Result<HermesHealthReport, String> {
+    let hermes = verified_hermes_executable()?;
+    let config_path = run_optional_hermes_command(&hermes, &["config", "path"]);
+    let env_path = run_optional_hermes_command(&hermes, &["config", "env-path"]);
+    let config_check = run_optional_hermes_command(&hermes, &["config", "check"]);
+    let status = run_optional_hermes_command(&hermes, &["status", "--all"]);
+    let doctor = run_optional_hermes_command(&hermes, &["doctor"]);
+    let tools = run_optional_hermes_command(&hermes, &["tools", "list"]);
+
+    let ok = config_check.ok && status.ok && doctor.ok;
+    Ok(HermesHealthReport {
+        ok,
+        config_path: config_path.ok.then(|| command_output_or_empty(&config_path)),
+        env_path: env_path.ok.then(|| command_output_or_empty(&env_path)),
+        status_output: command_output_or_empty(&status),
+        doctor_output: command_output_or_empty(&doctor),
+        tools_output: command_output_or_empty(&tools),
+        message: if ok {
+            "Hermes workspace health check passed.".to_string()
+        } else {
+            "Hermes needs attention. Review doctor/status details in QARKO OS.".to_string()
+        },
+    })
+}
+
+fn toolsets_for_mode(mode: &str) -> Vec<&'static str> {
+    match mode {
+        "developer" => vec!["web", "file", "terminal", "browser", "skills", "memory", "session_search", "delegation", "todo"],
+        "work" | "automation" => vec!["web", "file", "skills", "memory", "session_search", "todo"],
+        _ => vec!["web", "file", "skills", "memory", "session_search", "todo"],
+    }
+}
+
+#[tauri::command]
+fn configure_hermes_tool_preset(request: HermesToolPresetRequest) -> Result<CommandResult, String> {
+    let hermes = verified_hermes_executable()?;
+    let mut outputs = Vec::new();
+    for (key, value) in [
+        ("security.redact_secrets", "true"),
+        ("privacy.redact_pii", "true"),
+    ] {
+        let result = set_hermes_config(&hermes, key, value)?;
+        outputs.push(command_output_or_empty(&result));
+        if !result.ok {
+            return Ok(CommandResult {
+                ok: false,
+                message: format!("Failed to set Hermes config {}.", key),
+                output: outputs.join("\n"),
+            });
+        }
+    }
+
+    let enabled = toolsets_for_mode(request.mode.trim());
+    for tool in enabled {
+        let result = run_hidden_command(Command::new(&hermes).args(["tools", "enable", tool]))?;
+        outputs.push(command_output_or_empty(&result));
+        if !result.ok {
+            return Ok(CommandResult {
+                ok: false,
+                message: format!("Failed to enable Hermes toolset {}.", tool),
+                output: outputs.join("\n"),
+            });
+        }
+    }
+
+    if request.mode.trim() == "safe" {
+        for tool in ["terminal", "browser"] {
+            let result = run_hidden_command(Command::new(&hermes).args(["tools", "disable", tool]))?;
+            outputs.push(command_output_or_empty(&result));
+        }
+    }
+
+    Ok(CommandResult {
+        ok: true,
+        message: "Hermes tool preset was saved. New QARKO runs will use the updated capabilities.".to_string(),
+        output: outputs.join("\n"),
     })
 }
 
@@ -567,11 +714,33 @@ fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, S
         return Err("이 제공자는 QARKO OS OAuth 로그인에서 아직 지원하지 않습니다.".to_string());
     }
 
-    open_visible_hermes_terminal(&["auth", "add", provider, "--type", "oauth", "--timeout", "900"], "QARKO Hermes Auth")?;
+    let hermes = verified_hermes_executable()?;
+    let mut command = Command::new(&hermes);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+        .args(["login", "--provider", provider, "--timeout", "900"])
+        .spawn()
+        .map_err(|error| error.to_string())?;
+
     Ok(CommandResult {
         ok: true,
-        message: "Hermes 인증 터미널 창을 열었습니다. 열린 창에 표시되는 주소나 코드를 따라 로그인하세요.".to_string(),
-        output: "Visible terminal launched for hermes auth add.".to_string(),
+        message: "Hermes guided login started. If a browser does not open, use the login window fallback in QARKO OS.".to_string(),
+        output: "Started hermes login --provider in the background. QARKO verifies with auth status/list and doctor. If Hermes prints a device URL instead of opening a browser, use the visible login fallback.".to_string(),
+    })
+}
+
+#[tauri::command]
+fn open_hermes_login_terminal(request: HermesLoginRequest) -> Result<CommandResult, String> {
+    let provider = request.provider.trim();
+    if !oauth_provider_allowed(provider) {
+        return Err("This provider is not supported for QARKO OS OAuth login yet.".to_string());
+    }
+    open_visible_hermes_terminal(&["login", "--provider", provider, "--timeout", "900"], "QARKO Hermes Login")?;
+    Ok(CommandResult {
+        ok: true,
+        message: "Hermes login window opened. Complete the login there, then return to QARKO OS and press Check auth.".to_string(),
+        output: "Visible fallback launched for hermes login --provider.".to_string(),
     })
 }
 
@@ -582,20 +751,30 @@ fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult
     if !oauth_provider_allowed(provider) {
         return Err("This provider is not supported for QARKO OS OAuth checks yet.".to_string());
     }
-    let result = run_hidden_command(Command::new(&hermes).args(["auth", "status", provider]))?;
-    let lower = result.output.to_lowercase();
-    let logged_in = result.ok
+    let status = run_hidden_command(Command::new(&hermes).args(["auth", "status", provider]))?;
+    let list = run_hidden_command(Command::new(&hermes).args(["auth", "list", provider]))
+        .unwrap_or_else(|_| run_optional_hermes_command(&hermes, &["auth", "list"]));
+    let doctor = run_optional_hermes_command(&hermes, &["doctor"]);
+    let combined = [
+        command_output_or_empty(&status),
+        command_output_or_empty(&list),
+        command_output_or_empty(&doctor),
+    ]
+    .join("\n");
+    let lower = combined.to_lowercase();
+    let logged_in = (status.ok || list.ok)
         && !lower.contains("logged out")
         && !lower.contains("no credentials")
-        && !lower.contains("not logged");
+        && !lower.contains("not logged")
+        && !lower.contains("not authenticated");
     Ok(CommandResult {
         ok: logged_in,
         message: if logged_in {
             "Hermes auth status is connected.".to_string()
         } else {
-            "Hermes auth is not complete yet. Finish login in the visible terminal, then check again.".to_string()
+            "Hermes auth is not complete yet. Finish browser login, then check again. If it still fails, use the advanced Hermes setup fallback.".to_string()
         },
-        output: result.output,
+        output: redact_sensitive_output(combined),
     })
 }
 
@@ -620,6 +799,7 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
         return Err("The task prompt is too long. Shorten the project goal and try again.".to_string());
     }
 
+    let workspace_dir = qarko_workspace_dir(request.project_id.clone(), request.run_id.clone())?;
     let runtime_dir = qarko_local_app_dir().join("runtime");
     fs::create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
     let now_nanos = SystemTime::now()
@@ -634,8 +814,9 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
     ));
     fs::write(&prompt_path, prompt).map_err(|error| error.to_string())?;
     let query = format!(
-        "Read the local task file at this exact path and follow its instructions. File: {}",
-        prompt_path.to_string_lossy()
+        "Read the local task file at this exact path and follow its instructions. File: {}\nSave every artifact, draft, note, code file, and summary inside this QARKO workspace folder only: {}\nDo not modify files outside that folder unless the user explicitly approves it in QARKO OS.",
+        prompt_path.to_string_lossy(),
+        workspace_dir.to_string_lossy()
     );
 
     let mut command = Command::new(&hermes);
@@ -644,6 +825,7 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
             command.env(env_name, api_key);
         }
     }
+    command.current_dir(&workspace_dir);
     command.args([
         "chat",
         "-q",
@@ -659,6 +841,32 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
     if !model.is_empty() {
         command.args(["--model", model]);
     }
+    let toolsets = request
+        .toolsets
+        .as_deref()
+        .unwrap_or("web,file,skills,memory,session_search,todo")
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter(|value| {
+            matches!(
+                *value,
+                "web"
+                    | "file"
+                    | "terminal"
+                    | "browser"
+                    | "skills"
+                    | "memory"
+                    | "session_search"
+                    | "delegation"
+                    | "todo"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    if !toolsets.is_empty() {
+        command.args(["-t", toolsets.as_str()]);
+    }
 
     let result = run_hidden_command_with_timeout(&mut command, Duration::from_secs(180));
     let _ = fs::remove_file(prompt_path);
@@ -667,7 +875,7 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
         Ok(CommandResult {
             ok: true,
             message: "Hermes generated the MVP execution draft.".to_string(),
-            output: result.output,
+            output: format!("Workspace: {}\n\n{}", workspace_dir.to_string_lossy(), result.output),
         })
     } else {
         Ok(CommandResult {
@@ -686,8 +894,11 @@ pub fn run() {
             install_hermes,
             update_hermes_verified,
             open_hermes_setup_terminal,
+            hermes_health,
             configure_hermes,
+            configure_hermes_tool_preset,
             login_hermes_provider,
+            open_hermes_login_terminal,
             check_hermes_auth_status,
             run_hermes_oneshot
         ])

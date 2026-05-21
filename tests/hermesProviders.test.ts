@@ -37,11 +37,14 @@ test("every provider with curated choices includes its default model", () => {
   }
 });
 
-test("desktop auth flow uses Hermes auth add, not the removed login command", () => {
+test("desktop auth flow uses Hermes guided login and auth status checks", () => {
   const rustSource = readFileSync("src-tauri/src/lib.rs", "utf8");
 
-  assert.match(rustSource, /"auth",\s*"add"/);
-  assert.doesNotMatch(rustSource, /"login",\s*"--provider"/);
+  assert.match(rustSource, /"login",\s*"--provider"/);
+  assert.match(rustSource, /"auth",\s*"status"/);
+  assert.match(rustSource, /"auth",\s*"list"/);
+  assert.match(rustSource, /hermes_health/);
+  assert.match(rustSource, /configure_hermes_tool_preset/);
   assert.match(rustSource, /"model\.default"/);
   assert.match(rustSource, /"model\.provider"/);
   assert.match(rustSource, /"model\.base_url"/);

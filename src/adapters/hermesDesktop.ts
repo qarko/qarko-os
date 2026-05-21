@@ -44,11 +44,25 @@ export interface HermesCommandResult {
   output: string;
 }
 
+export interface HermesHealthReport {
+  ok: boolean;
+  configPath?: string;
+  envPath?: string;
+  statusOutput: string;
+  doctorOutput: string;
+  toolsOutput: string;
+  message: string;
+}
+
 export interface HermesOneShotRequest {
   prompt: string;
   modelName: string;
   provider: string;
   apiKey: string;
+  projectId?: string;
+  runId?: string;
+  toolsets?: string;
+  workspacePath?: string;
 }
 
 const hermesVerifiedInstallPlan: HermesVerifiedInstallPlan = {
@@ -140,11 +154,38 @@ export const configureHermesGuidedSetup = async (setup: HermesGuidedSetup): Prom
   return invoke<HermesCommandResult>("configure_hermes", { request: setup });
 };
 
+export const getHermesHealthReport = async (): Promise<HermesHealthReport> => {
+  if (!hasTauriRuntime()) {
+    return {
+      ok: false,
+      statusOutput: "Windows desktop app required.",
+      doctorOutput: "Hermes doctor is available only in the desktop app.",
+      toolsOutput: "Hermes tools are available only in the desktop app.",
+      message: "Hermes health check is available only in the Windows desktop app.",
+    };
+  }
+  return invoke<HermesHealthReport>("hermes_health");
+};
+
+export const configureHermesToolPreset = async (mode: "safe" | "work" | "developer" | "automation"): Promise<HermesCommandResult> => {
+  if (!hasTauriRuntime()) {
+    throw new Error("Hermes tool presets are available only in the Windows desktop app.");
+  }
+  return invoke<HermesCommandResult>("configure_hermes_tool_preset", { request: { mode } });
+};
+
 export const loginHermesProvider = async (provider: string): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
     throw new Error("Hermes OAuth login is available only in the Windows desktop app.");
   }
   return invoke<HermesCommandResult>("login_hermes_provider", { request: { provider } });
+};
+
+export const openHermesLoginTerminal = async (provider: string): Promise<HermesCommandResult> => {
+  if (!hasTauriRuntime()) {
+    throw new Error("Hermes login fallback is available only in the Windows desktop app.");
+  }
+  return invoke<HermesCommandResult>("open_hermes_login_terminal", { request: { provider } });
 };
 
 export const checkHermesAuthStatus = async (provider: string): Promise<HermesCommandResult> => {

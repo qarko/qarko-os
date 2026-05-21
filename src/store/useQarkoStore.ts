@@ -2,9 +2,12 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
   checkHermesAuthStatus,
+  configureHermesToolPreset,
   configureHermesGuidedSetup,
+  getHermesHealthReport,
   getHermesDesktopStatus,
   hasTauriRuntime,
+  openHermesLoginTerminal,
   loginHermesProvider,
   openHermesSetupTerminal,
   runHermesBusinessStep,
@@ -39,8 +42,10 @@ import type {
   AutomationMode,
   FeedbackEntry,
   HermesConnection,
+  HermesHealthSnapshot,
   HermesInstallStatus,
   HermesStatus,
+  HermesToolPreset,
   NewFeedbackInput,
   NewProjectInput,
   NewReviewNoteInput,
@@ -73,6 +78,8 @@ interface QarkoState {
   hermesStatus: HermesStatus;
   hermesMessage: string;
   hermesAvailableModels: string[];
+  hermesHealth: HermesHealthSnapshot;
+  hermesToolPreset: HermesToolPreset;
   hermesInstallStatus: HermesInstallStatus;
   hermesExecutablePath?: string;
   hermesInstallMessage: string;
@@ -98,6 +105,8 @@ interface QarkoState {
   loadFromCloud: () => Promise<void>;
   updateHermesConnection: (connection: Partial<HermesConnection>) => void;
   testHermesRuntime: () => Promise<void>;
+  refreshHermesHealth: () => Promise<void>;
+  saveHermesToolPreset: (mode: HermesToolPreset) => Promise<void>;
   checkHermesInstall: () => Promise<void>;
   installHermesDesktop: () => Promise<void>;
   updateHermesVerified: () => Promise<void>;
@@ -105,6 +114,7 @@ interface QarkoState {
   saveHermesGuidedSetup: () => Promise<void>;
   loginHermesOAuthProvider: () => Promise<void>;
   openHermesSetupWizard: (section?: string) => Promise<void>;
+  openHermesLoginFallback: () => Promise<void>;
   openHermesOnboarding: () => void;
   dismissHermesOnboarding: () => void;
   addFeedback: (input: NewFeedbackInput) => void;
@@ -311,6 +321,11 @@ const buildMvpPrompt = (project: Project, run: Run) => [
   "## 다음 버튼을 눌렀을 때 이어갈 작업",
 ].join("\n");
 
+const toolsetsForHermesPreset = (mode: HermesToolPreset) => {
+  if (mode === "developer") return "web,file,terminal,browser,skills,memory,session_search,delegation,todo";
+  return "web,file,skills,memory,session_search,todo";
+};
+
 export const useQarkoStore = create<QarkoState>()(
   persist(
     (set, get) => ({
@@ -337,6 +352,14 @@ export const useQarkoStore = create<QarkoState>()(
       hermesStatus: "not_configured",
       hermesMessage: "Hermes API 주소와 모델을 확인하면 실제 런타임 상태로 전환됩니다.",
       hermesAvailableModels: [],
+      hermesHealth: {
+        ok: false,
+        statusOutput: "",
+        doctorOutput: "",
+        toolsOutput: "",
+        message: "Hermes 작업실 점검을 아직 실행하지 않았습니다.",
+      },
+      hermesToolPreset: "safe",
       hermesInstallStatus: "unknown",
       hermesInstallMessage: "Hermes 설치 상태를 아직 확인하지 않았습니다.",
       hermesSetupProvider: "openai-codex",
@@ -345,7 +368,7 @@ export const useQarkoStore = create<QarkoState>()(
       hermesAuthMessage: "OAuth 제공자를 선택하면 QARKO OS 안에서 로그인 흐름을 시작할 수 있습니다.",
       hermesUpdateStatus: "idle",
       hermesUpdateMessage: "업데이트는 QARKO가 확인한 버전으로만 진행합니다. 새 버전 적용도 사용자가 직접 승인해야 시작됩니다.",
-      showHermesOnboarding: true,
+      showHermesOnboarding: false,
       selectProject: (projectId) => set({ selectedProjectId: projectId, view: "project" }),
       setView: (view) => set({ view }),
       createProject: (input) =>
@@ -478,6 +501,9 @@ export const useQarkoStore = create<QarkoState>()(
             modelName: state.hermesConnection.modelName,
             provider: state.hermesSetupProvider,
             apiKey: state.hermesConnection.apiKey,
+            projectId: project.id,
+            runId,
+            toolsets: toolsetsForHermesPreset(state.hermesToolPreset),
           });
           const output = result.output.trim() || result.message;
           const artifact: Artifact | null = result.ok
@@ -563,6 +589,42 @@ export const useQarkoStore = create<QarkoState>()(
           hermesMessage: "Hermes 연결 정보가 변경되었습니다. 연결 테스트를 다시 실행하세요.",
           actionNotice: "Hermes 연결 정보를 로컬 상태에 반영했습니다. API 키는 장기 저장하지 않습니다.",
         })),
+      refreshHermesHealth: async () => {
+        set({ actionNotice: "Hermes 작업실 상태를 점검하는 중입니다." });
+        try {
+          const health = await getHermesHealthReport();
+          set({
+            hermesHealth: health,
+            actionNotice: health.ok ? "Hermes 작업실 점검이 완료되었습니다." : "Hermes 점검에서 확인할 항목이 있습니다.",
+          });
+        } catch (error) {
+          set({
+            hermesHealth: {
+              ok: false,
+              statusOutput: "",
+              doctorOutput: "",
+              toolsOutput: "",
+              message: error instanceof Error ? error.message : "Hermes 작업실 점검에 실패했습니다.",
+            },
+            actionNotice: "Hermes 작업실 점검에 실패했습니다.",
+          });
+        }
+      },
+      saveHermesToolPreset: async (mode) => {
+        set({ hermesToolPreset: mode, actionNotice: "Hermes 업무 능력 프리셋을 저장하는 중입니다." });
+        try {
+          const result = await configureHermesToolPreset(mode);
+          set({
+            hermesSetupOutput: result.output,
+            actionNotice: result.ok ? result.message : "Hermes 업무 능력 프리셋 저장에 실패했습니다.",
+          });
+        } catch (error) {
+          set({
+            hermesSetupOutput: error instanceof Error ? error.message : "Hermes 업무 능력 프리셋 저장에 실패했습니다.",
+            actionNotice: "Hermes 업무 능력 프리셋 저장에 실패했습니다.",
+          });
+        }
+      },
       testHermesRuntime: async () => {
         const state = get();
         const connection = state.hermesConnection;
@@ -749,7 +811,7 @@ export const useQarkoStore = create<QarkoState>()(
         const state = get();
         set({
           hermesAuthStatus: "running",
-          hermesAuthMessage: "Hermes 인증 터미널을 여는 중입니다. 열린 창에서 로그인을 완료한 뒤 QARKO OS로 돌아와 상태를 확인하세요.",
+          hermesAuthMessage: "Hermes guided login을 시작하는 중입니다. 브라우저 로그인이 열리면 완료한 뒤 QARKO OS에서 인증 확인을 누르세요.",
           hermesSetupOutput: "",
           actionNotice: "Hermes OAuth 로그인을 시작했습니다.",
         });
@@ -759,7 +821,7 @@ export const useQarkoStore = create<QarkoState>()(
             hermesAuthStatus: result.ok ? "idle" : "error",
             hermesAuthMessage: result.message,
             hermesSetupOutput: result.output,
-            actionNotice: result.ok ? "열린 Hermes 인증 터미널에서 로그인을 완료한 뒤 모델 저장과 연결 확인을 진행하세요." : "Hermes OAuth 로그인이 시작되지 않았습니다.",
+            actionNotice: result.ok ? "브라우저 로그인을 완료한 뒤 인증 확인을 누르세요." : "Hermes OAuth 로그인이 시작되지 않았습니다.",
           });
         } catch (error) {
           set({
@@ -787,7 +849,26 @@ export const useQarkoStore = create<QarkoState>()(
           });
         }
       },
-      openHermesOnboarding: () => set({ showHermesOnboarding: true, actionNotice: "Hermes 설정 마법사를 열었습니다." }),
+      openHermesLoginFallback: async () => {
+        const state = get();
+        set({
+          hermesSetupOutput: "",
+          actionNotice: "브라우저 로그인이 열리지 않아 고급 로그인 창을 여는 중입니다.",
+        });
+        try {
+          const result = await openHermesLoginTerminal(state.hermesSetupProvider);
+          set({
+            hermesSetupOutput: result.output,
+            actionNotice: result.message,
+          });
+        } catch (error) {
+          set({
+            hermesSetupOutput: error instanceof Error ? error.message : "Hermes 로그인 창을 열지 못했습니다.",
+            actionNotice: "Hermes 로그인 창을 열지 못했습니다.",
+          });
+        }
+      },
+      openHermesOnboarding: () => set({ showHermesOnboarding: true, actionNotice: "Hermes 작업실 준비 화면을 열었습니다." }),
       dismissHermesOnboarding: () => set({ showHermesOnboarding: false }),
       addFeedback: (input) =>
         set((state) => {
@@ -961,6 +1042,8 @@ export const useQarkoStore = create<QarkoState>()(
         hermesStatus: persistedHermesStatus,
         hermesMessage: state.hermesMessage,
         hermesAvailableModels: state.hermesAvailableModels,
+        hermesHealth: state.hermesHealth,
+        hermesToolPreset: state.hermesToolPreset,
         hermesInstallStatus: state.hermesInstallStatus,
         hermesExecutablePath: state.hermesExecutablePath,
         hermesInstallMessage: state.hermesInstallMessage,
@@ -970,9 +1053,13 @@ export const useQarkoStore = create<QarkoState>()(
         hermesAuthMessage: state.hermesAuthMessage,
         hermesUpdateStatus: state.hermesUpdateStatus,
         hermesUpdateMessage: state.hermesUpdateMessage,
-        showHermesOnboarding: state.showHermesOnboarding,
         };
       },
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...(persistedState as Partial<QarkoState>),
+        showHermesOnboarding: false,
+      }),
     }
   )
 );
