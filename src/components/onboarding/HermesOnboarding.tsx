@@ -25,6 +25,7 @@ export function HermesOnboarding() {
     hermesInstallStatus,
     hermesSetupOutput,
     hermesSetupProvider,
+    hermesStatus,
     hermesToolPreset,
     installHermesDesktop,
     loginHermesOAuthProvider,
@@ -62,6 +63,7 @@ export function HermesOnboarding() {
   const isOauth = selectedProvider.authType === "oauth";
   const loggingIn = hermesAuthStatus === "running";
   const canSave = installed && hermesConnection.modelName.trim().length > 0;
+  const authConnected = hermesStatus === "connected";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4">
@@ -189,11 +191,14 @@ export function HermesOnboarding() {
                 {isOauth ? (
                   <div className="rounded-md border border-line bg-panel p-4 text-sm leading-6 text-stone-700">
                     <p className="font-semibold text-ink">OAuth 인증</p>
-                    <p className="mt-1">QARKO가 Hermes guided login을 시작합니다. 브라우저에서 로그인을 완료한 뒤 이 화면에서 인증 상태를 확인하세요.</p>
+                    <p className="mt-1">브라우저에서 코드를 입력해 인증을 완료한 뒤, 이 화면의 인증 완료 확인을 누르세요. 터미널 응답을 기다릴 필요는 없습니다.</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button onClick={loginHermesOAuthProvider} disabled={!installed || loggingIn} className="inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50">
                         <ExternalLink className="h-4 w-4" />
                         {loggingIn ? "시작 중..." : "브라우저 로그인 시작"}
+                      </button>
+                      <button onClick={testHermesRuntime} disabled={!installed} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50">
+                        인증 완료 확인
                       </button>
                       <button onClick={openHermesLoginFallback} disabled={!installed} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50">
                         로그인 창으로 열기
@@ -297,8 +302,8 @@ export function HermesOnboarding() {
                     <CheckCircle2 className="h-4 w-4" />
                     {isOauth ? "인증 상태 확인" : "연결 테스트"}
                   </button>
-                  <button onClick={dismissHermesOnboarding} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel">
-                    작업실 시작
+                  <button onClick={dismissHermesOnboarding} disabled={isOauth && !authConnected} className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50">
+                    {isOauth && !authConnected ? "인증 확인 후 작업실 시작" : "작업실 시작"}
                   </button>
                 </div>
               </div>

@@ -118,9 +118,11 @@ export const hasTauriRuntime = () => typeof window !== "undefined" && "__TAURI_I
 export const getHermesDesktopStatus = async (): Promise<HermesDesktopStatus> => {
   if (!hasTauriRuntime()) {
     return {
-      installed: false,
-      verified: false,
-      message: "Hermes desktop status is available only in the Windows desktop app.",
+      installed: true,
+      verified: true,
+      executablePath: "browser-preview://hermes",
+      version: "Browser preview",
+      message: "웹 미리보기 모드입니다. 실제 Hermes 설치와 실행은 Windows 앱 패키징 후 검증합니다.",
     };
   }
   return invoke<HermesDesktopStatus>("hermes_status");
@@ -128,28 +130,36 @@ export const getHermesDesktopStatus = async (): Promise<HermesDesktopStatus> => 
 
 export const startHermesInstall = async () => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes automatic install is available only in the Windows desktop app.");
+    return "웹 미리보기에서는 Hermes 설치를 건너뜁니다. Windows 앱에서는 실제 설치가 실행됩니다.";
   }
   return invoke<string>("install_hermes");
 };
 
 export const updateHermesToVerifiedVersion = async () => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes update is available only in the Windows desktop app.");
+    return "웹 미리보기에서는 Hermes 업데이트를 건너뜁니다. Windows 앱에서는 검증된 버전으로 업데이트합니다.";
   }
   return invoke<string>("update_hermes_verified");
 };
 
 export const openHermesSetupTerminal = async (section?: string): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes setup terminal is available only in the Windows desktop app.");
+    return {
+      ok: true,
+      message: "웹 미리보기에서는 고급 Hermes setup 창을 열지 않습니다.",
+      output: `Preview fallback: hermes setup${section ? ` ${section}` : ""}`,
+    };
   }
   return invoke<HermesCommandResult>("open_hermes_setup_terminal", { section });
 };
 
 export const configureHermesGuidedSetup = async (setup: HermesGuidedSetup): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes settings can be saved only in the Windows desktop app.");
+    return {
+      ok: true,
+      message: "웹 미리보기 모델 설정을 저장했습니다.",
+      output: `Preview model: ${setup.provider} / ${setup.modelName}`,
+    };
   }
   return invoke<HermesCommandResult>("configure_hermes", { request: setup });
 };
@@ -157,11 +167,13 @@ export const configureHermesGuidedSetup = async (setup: HermesGuidedSetup): Prom
 export const getHermesHealthReport = async (): Promise<HermesHealthReport> => {
   if (!hasTauriRuntime()) {
     return {
-      ok: false,
-      statusOutput: "Windows desktop app required.",
-      doctorOutput: "Hermes doctor is available only in the desktop app.",
-      toolsOutput: "Hermes tools are available only in the desktop app.",
-      message: "Hermes health check is available only in the Windows desktop app.",
+      ok: true,
+      configPath: "browser-preview://config.yaml",
+      envPath: "browser-preview://.env",
+      statusOutput: "Browser preview: Hermes runtime simulated.",
+      doctorOutput: "Browser preview: native checks are deferred to Windows packaging.",
+      toolsOutput: "web,file,skills,memory,session_search,todo",
+      message: "웹 미리보기 점검이 완료되었습니다. 실제 Hermes 점검은 Windows 앱에서 실행합니다.",
     };
   }
   return invoke<HermesHealthReport>("hermes_health");
@@ -169,28 +181,44 @@ export const getHermesHealthReport = async (): Promise<HermesHealthReport> => {
 
 export const configureHermesToolPreset = async (mode: "safe" | "work" | "developer" | "automation"): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes tool presets are available only in the Windows desktop app.");
+    return {
+      ok: true,
+      message: `웹 미리보기 업무 능력 프리셋을 ${mode}로 저장했습니다.`,
+      output: `Preview tool preset: ${mode}`,
+    };
   }
   return invoke<HermesCommandResult>("configure_hermes_tool_preset", { request: { mode } });
 };
 
 export const loginHermesProvider = async (provider: string): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes OAuth login is available only in the Windows desktop app.");
+    return {
+      ok: true,
+      message: "웹 미리보기 OAuth 흐름을 시작했습니다. 실제 브라우저 인증은 Windows 앱에서 검증합니다.",
+      output: [`Preview OAuth provider: ${provider}`, "URL: https://auth.openai.com/codex/device", "Code: QARKO-DEMO"].join("\n"),
+    };
   }
   return invoke<HermesCommandResult>("login_hermes_provider", { request: { provider } });
 };
 
 export const openHermesLoginTerminal = async (provider: string): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes login fallback is available only in the Windows desktop app.");
+    return {
+      ok: true,
+      message: "웹 미리보기에서는 로그인 창 fallback을 열지 않습니다.",
+      output: `Preview fallback: hermes auth add ${provider} --type oauth`,
+    };
   }
   return invoke<HermesCommandResult>("open_hermes_login_terminal", { request: { provider } });
 };
 
 export const checkHermesAuthStatus = async (provider: string): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
-    throw new Error("Hermes auth check is available only in the Windows desktop app.");
+    return {
+      ok: true,
+      message: "웹 미리보기 OAuth 인증이 완료된 상태로 처리되었습니다.",
+      output: `${provider}: logged in (browser preview)`,
+    };
   }
   return invoke<HermesCommandResult>("check_hermes_auth_status", { request: { provider } });
 };

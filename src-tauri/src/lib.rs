@@ -838,7 +838,11 @@ fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult
     }
     let status = run_hidden_command(Command::new(&hermes).args(["auth", "status", provider]))?;
     let list = run_hidden_command(Command::new(&hermes).args(["auth", "list", provider]))
-        .unwrap_or_else(|_| run_optional_hermes_command(&hermes, &["auth", "list"]));
+        .unwrap_or_else(|error| CommandResult {
+            ok: false,
+            message: "Provider auth list failed.".to_string(),
+            output: error,
+        });
     let doctor = run_optional_hermes_command(&hermes, &["doctor"]);
     let combined = [
         command_output_or_empty(&status),
@@ -846,12 +850,16 @@ fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult
         command_output_or_empty(&doctor),
     ]
     .join("\n");
-    let lower = combined.to_lowercase();
-    let logged_in = (status.ok || list.ok)
-        && !lower.contains("logged out")
-        && !lower.contains("no credentials")
-        && !lower.contains("not logged")
-        && !lower.contains("not authenticated");
+    let provider_auth_output = [command_output_or_empty(&status), command_output_or_empty(&list)].join("\n");
+    let provider_auth_lower = provider_auth_output.to_lowercase();
+    let provider_positive = provider_auth_lower.contains("logged in")
+        || provider_auth_lower.contains(&format!("{} (", provider))
+        || provider_auth_lower.contains(&format!("{}:", provider));
+    let logged_in = provider_positive
+        && !provider_auth_lower.contains("logged out")
+        && !provider_auth_lower.contains("no credentials")
+        && !provider_auth_lower.contains("not logged")
+        && !provider_auth_lower.contains("not authenticated");
     Ok(CommandResult {
         ok: logged_in,
         message: if logged_in {

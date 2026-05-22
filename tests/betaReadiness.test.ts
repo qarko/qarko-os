@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { runHermesBusinessStep } from "../src/adapters/hermesDesktop";
+import {
+  checkHermesAuthStatus,
+  configureHermesGuidedSetup,
+  configureHermesToolPreset,
+  getHermesDesktopStatus,
+  getHermesHealthReport,
+  loginHermesProvider,
+  runHermesBusinessStep,
+} from "../src/adapters/hermesDesktop";
 import { isTrustedSyncEndpoint } from "../src/adapters/workspaceSync";
 
 test("beta workspace starts without seeded sample projects", () => {
@@ -85,6 +93,8 @@ test("QARKO beta uses Korean workbench-first Hermes onboarding", () => {
   assert.match(onboardingSource, /작업 엔진/);
   assert.match(onboardingSource, /전체 점검 실행/);
   assert.match(onboardingSource, /브라우저 로그인 시작/);
+  assert.match(onboardingSource, /인증 완료 확인/);
+  assert.match(onboardingSource, /터미널 응답을 기다릴 필요는 없습니다/);
   assert.match(onboardingSource, /업무 능력 프리셋/);
   assert.doesNotMatch(onboardingSource, /Hermes setup wizard/);
   assert.doesNotMatch(onboardingSource, /Open auth terminal/);
@@ -107,6 +117,7 @@ test("QARKO beta uses Korean workbench-first Hermes onboarding", () => {
   assert.match(executionPanel, /산출물/);
   assert.match(executionPanel, /승인/);
   assert.match(executionPanel, /피드백/);
+  assert.match(executionPanel, /현재 단계 실행/);
 });
 
 test("browser preview can run the beta fallback without Tauri", async () => {
@@ -120,6 +131,29 @@ test("browser preview can run the beta fallback without Tauri", async () => {
   assert.equal(result.ok, true);
   assert.equal(typeof result.message, "string");
   assert.match(result.output, /MVP/);
+});
+
+test("browser preview can complete the Hermes setup UX without Tauri", async () => {
+  const status = await getHermesDesktopStatus();
+  const login = await loginHermesProvider("openai-codex");
+  const auth = await checkHermesAuthStatus("openai-codex");
+  const model = await configureHermesGuidedSetup({
+    provider: "openai-codex",
+    modelName: "gpt-5.5",
+    apiKey: "",
+    endpoint: "",
+  });
+  const tools = await configureHermesToolPreset("work");
+  const health = await getHermesHealthReport();
+
+  assert.equal(status.installed, true);
+  assert.equal(status.verified, true);
+  assert.equal(login.ok, true);
+  assert.match(login.output, /QARKO-DEMO/);
+  assert.equal(auth.ok, true);
+  assert.equal(model.ok, true);
+  assert.equal(tools.ok, true);
+  assert.equal(health.ok, true);
 });
 
 test("cloud sync trust rejects localhost lookalike hosts", () => {

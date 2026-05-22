@@ -213,7 +213,7 @@ export function ExecutionPanel() {
           <div className="border-t border-line p-4">
             <button onClick={runNextStep} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss">
               <Play className="h-4 w-4" />
-              Hermes 실행
+              현재 단계 실행
             </button>
           </div>
         </section>

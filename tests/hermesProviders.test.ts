@@ -48,6 +48,8 @@ test("desktop auth flow uses Hermes guided login and auth status checks", () => 
   assert.doesNotMatch(openUrlFunction, /"cmd\.exe"[\s\S]*"start"/);
   assert.match(rustSource, /"auth",\s*"status"/);
   assert.match(rustSource, /"auth",\s*"list"/);
+  assert.match(rustSource, /provider_auth_output/);
+  assert.match(rustSource, /provider_auth_lower/);
   assert.match(rustSource, /hermes_health/);
   assert.match(rustSource, /configure_hermes_tool_preset/);
   assert.match(rustSource, /"model\.default"/);

@@ -821,7 +821,7 @@ export const useQarkoStore = create<QarkoState>()(
             hermesAuthStatus: result.ok ? "idle" : "error",
             hermesAuthMessage: result.message,
             hermesSetupOutput: result.output,
-            actionNotice: result.ok ? "브라우저 로그인을 완료한 뒤 인증 확인을 누르세요." : "Hermes OAuth 로그인이 시작되지 않았습니다.",
+            actionNotice: result.ok ? "브라우저에서 코드 입력을 완료한 뒤 인증 완료 확인을 누르세요." : "Hermes OAuth 로그인이 시작되지 않았습니다.",
           });
         } catch (error) {
           set({
