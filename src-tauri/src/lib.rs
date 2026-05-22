@@ -2,6 +2,7 @@ use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
+use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -219,7 +220,8 @@ fn powershell_install_script() -> String {
 
 fn redact_sensitive_output(value: String) -> String {
     let mut redacted_lines = Vec::new();
-    for line in value.lines() {
+    let clean_value = strip_ansi_codes(&value);
+    for line in clean_value.lines() {
         let lower = line.to_lowercase();
         if lower.contains("api_key")
             || lower.contains("apikey")
@@ -234,6 +236,24 @@ fn redact_sensitive_output(value: String) -> String {
         }
     }
     redacted_lines.join("\n")
+}
+
+fn strip_ansi_codes(value: &str) -> String {
+    let mut result = String::new();
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+            let _ = chars.next();
+            while let Some(next) = chars.next() {
+                if next.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
@@ -510,6 +530,49 @@ fn command_output_or_empty(result: &CommandResult) -> String {
     }
 }
 
+fn extract_first_https_url(value: &str) -> Option<String> {
+    let start = value.find("https://")?;
+    let tail = &value[start..];
+    let url = tail
+        .chars()
+        .take_while(|ch| !ch.is_whitespace() && !ch.is_control() && *ch != '\u{1b}')
+        .collect::<String>();
+    if url.starts_with("https://") {
+        Some(url)
+    } else {
+        None
+    }
+}
+
+fn open_url_in_default_browser(url: &str) {
+    if !url.starts_with("https://") {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", url])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+}
+
+fn wait_for_auth_output(log_path: &PathBuf, timeout: Duration) -> String {
+    let start = Instant::now();
+    let mut last_output = String::new();
+    while start.elapsed() < timeout {
+        let output = fs::read_to_string(log_path).unwrap_or_default();
+        if extract_first_https_url(&output).is_some() || output.contains("Enter this code") || output.contains("Waiting for sign-in") {
+            return output;
+        }
+        if !output.trim().is_empty() {
+            last_output = output;
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+    last_output
+}
+
 fn cmd_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\\\""))
 }
@@ -715,18 +778,40 @@ fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, S
     }
 
     let hermes = verified_hermes_executable()?;
+    let runtime_dir = qarko_local_app_dir().join("runtime");
+    fs::create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
+    let log_path = runtime_dir.join(format!("qarko-hermes-auth-{}-{}.log", provider, std::process::id()));
+    let stdout_file = File::create(&log_path).map_err(|error| error.to_string())?;
+    let stderr_file = stdout_file.try_clone().map_err(|error| error.to_string())?;
     let mut command = Command::new(&hermes);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     command
-        .args(["login", "--provider", provider, "--timeout", "900"])
+        .args(["auth", "add", provider, "--type", "oauth", "--timeout", "900"])
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
         .spawn()
         .map_err(|error| error.to_string())?;
 
+    let output = wait_for_auth_output(&log_path, Duration::from_secs(15));
+    let url = extract_first_https_url(&output);
+    if let Some(url) = url.as_deref() {
+        open_url_in_default_browser(url);
+    }
+    let output = redact_sensitive_output(output);
+
     Ok(CommandResult {
         ok: true,
-        message: "Hermes guided login started. If a browser does not open, use the login window fallback in QARKO OS.".to_string(),
-        output: "Started hermes login --provider in the background. QARKO verifies with auth status/list and doctor. If Hermes prints a device URL instead of opening a browser, use the visible login fallback.".to_string(),
+        message: if url.is_some() {
+            "Hermes OAuth login is ready. QARKO opened the login page; enter the code shown below, then press Check auth.".to_string()
+        } else {
+            "Hermes OAuth login started, but QARKO could not find a browser URL yet. Use the visible login fallback if the URL does not appear.".to_string()
+        },
+        output: if output.trim().is_empty() {
+            format!("Started hermes auth add {} --type oauth. Waiting for Hermes to print the browser URL.", provider)
+        } else {
+            output
+        },
     })
 }
 
@@ -736,11 +821,11 @@ fn open_hermes_login_terminal(request: HermesLoginRequest) -> Result<CommandResu
     if !oauth_provider_allowed(provider) {
         return Err("This provider is not supported for QARKO OS OAuth login yet.".to_string());
     }
-    open_visible_hermes_terminal(&["login", "--provider", provider, "--timeout", "900"], "QARKO Hermes Login")?;
+    open_visible_hermes_terminal(&["auth", "add", provider, "--type", "oauth", "--timeout", "900"], "QARKO Hermes Login")?;
     Ok(CommandResult {
         ok: true,
         message: "Hermes login window opened. Complete the login there, then return to QARKO OS and press Check auth.".to_string(),
-        output: "Visible fallback launched for hermes login --provider.".to_string(),
+        output: "Visible fallback launched for hermes auth add --type oauth.".to_string(),
     })
 }
 

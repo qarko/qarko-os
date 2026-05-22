@@ -40,7 +40,12 @@ test("every provider with curated choices includes its default model", () => {
 test("desktop auth flow uses Hermes guided login and auth status checks", () => {
   const rustSource = readFileSync("src-tauri/src/lib.rs", "utf8");
 
-  assert.match(rustSource, /"login",\s*"--provider"/);
+  assert.match(rustSource, /"auth",\s*"add",\s*provider,\s*"--type",\s*"oauth"/);
+  assert.match(rustSource, /extract_first_https_url/);
+  assert.match(rustSource, /open_url_in_default_browser/);
+  assert.match(rustSource, /"rundll32\.exe"/);
+  const openUrlFunction = rustSource.match(/fn open_url_in_default_browser[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.doesNotMatch(openUrlFunction, /"cmd\.exe"[\s\S]*"start"/);
   assert.match(rustSource, /"auth",\s*"status"/);
   assert.match(rustSource, /"auth",\s*"list"/);
   assert.match(rustSource, /hermes_health/);

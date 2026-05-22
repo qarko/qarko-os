@@ -50,6 +50,9 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(rustSource, /fn check_hermes_auth_status[\s\S]*verified_hermes_executable\(\)\?/);
   assert.match(rustSource, /open_hermes_setup_terminal/);
   assert.match(rustSource, /open_hermes_login_terminal/);
+  assert.match(rustSource, /"auth",\s*"add",\s*provider,\s*"--type",\s*"oauth"/);
+  assert.match(rustSource, /wait_for_auth_output/);
+  assert.match(rustSource, /qarko-hermes-auth/);
   assert.match(rustSource, /login_hermes_provider/);
   assert.match(rustSource, /check_hermes_auth_status/);
   assert.match(rustSource, /write_hermes_verified_marker/);
