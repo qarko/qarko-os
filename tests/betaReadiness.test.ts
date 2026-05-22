@@ -79,6 +79,22 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(storeSource, /feedback|reviewNotes/);
   assert.match(storeSource, /isTrustedSyncEndpoint/);
   assert.match(storeSource, /current\.activeRun\.id !== runId/);
+  assert.match(storeSource, /redactSensitiveText/);
+  assert.match(storeSource, /sanitizeRunForStorage/);
+  assert.match(storeSource, /sanitizeArtifactForStorage/);
+  assert.match(storeSource, /sanitizeProjectForStorage/);
+  assert.match(storeSource, /sanitizeFeedbackForStorage/);
+  assert.match(storeSource, /approvalFingerprintForPrompt/);
+  assert.match(storeSource, /activeRun:\s*sanitizeRunForStorage\(state\.activeRun\)/);
+  assert.match(storeSource, /artifacts:\s*state\.artifacts\.map\(sanitizeArtifactForStorage\)/);
+  assert.match(storeSource, /projects:\s*state\.projects\.map\(sanitizeProjectForStorage\)/);
+  assert.match(storeSource, /needsManualApprovalForPrompt\(userPrompt\)/);
+  assert.doesNotMatch(storeSource, /project\.automationMode !== "automation"[\s\S]{0,120}needsManualApprovalForPrompt\(userPrompt\)/);
+  assert.match(storeSource, /status:\s*"pending"/);
+  assert.match(storeSource, /pendingPrompt:\s*decision === "approved" \? state\.pendingPrompt : ""/);
+  assert.match(storeSource, /redactSensitiveText\(userPrompt\)/);
+  assert.match(storeSource, /safeFeedback = state\.feedback\.map\(sanitizeFeedbackForStorage\)/);
+  assert.match(storeSource, /sendFeedbackEntries\(state\.syncEndpoint, safeFeedback\)/);
 });
 
 test("QARKO beta uses Korean workbench-first Hermes onboarding", () => {
@@ -106,16 +122,29 @@ test("QARKO beta uses Korean workbench-first Hermes onboarding", () => {
   assert.match(mockDataSource, /보기\/초안 모드/);
   assert.match(mockDataSource, /자동 실행 모드/);
 
-  assert.match(dashboardSource, /작업실/);
-  assert.match(dashboardSource, /오늘 할 작업/);
+  assert.match(dashboardSource, /Hermes Workbench/);
+  assert.match(dashboardSource, /Codex 앱처럼/);
+  assert.match(dashboardSource, /프로젝트 안에서 Hermes와 대화/);
+  assert.match(dashboardSource, /안전 승인 모드/);
+  assert.match(dashboardSource, /새 프로젝트/);
   assert.match(dashboardSource, /Hermes 실행/);
   assert.match(dashboardSource, /textarea/);
   assert.match(dashboardSource, /runWorkbenchTask/);
   assert.match(storeSource, /runWorkbenchTask/);
+  assert.match(storeSource, /pendingPrompt/);
+  assert.match(storeSource, /buildHermesChatPrompt/);
+  assert.match(storeSource, /roleName:\s*"User"/);
+  assert.match(storeSource, /Hermes 세션/);
+  assert.match(storeSource, /selectProject:[\s\S]*view:\s*"workspace"/);
+  assert.match(storeSource, /createProject:[\s\S]*view:\s*"workspace"/);
+  assert.match(storeSource, /중앙 채팅창/);
 
   assert.match(executionPanel, /실행 로그/);
   assert.match(executionPanel, /산출물/);
   assert.match(executionPanel, /승인/);
+  assert.match(executionPanel, /resolveApproval/);
+  assert.match(executionPanel, /approval\.projectId === selectedProjectId/);
+  assert.match(executionPanel, /expectedResult/);
   assert.match(executionPanel, /피드백/);
   assert.match(executionPanel, /현재 단계 실행/);
 });

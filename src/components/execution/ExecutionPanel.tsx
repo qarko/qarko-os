@@ -33,14 +33,18 @@ export function ExecutionPanel() {
     hermesStatus,
     openHermesOnboarding,
     reviewNotes,
+    resolveApproval,
     runNextStep,
+    selectedProjectId,
     updateReviewNoteStatus,
   } = useQarkoStore();
   const [activeTab, setActiveTab] = useState<LiveTab | null>(null);
   const [noteTarget, setNoteTarget] = useState("현재 화면");
   const [noteMessage, setNoteMessage] = useState("");
 
-  const pendingApproval = approvals.find((approval) => approval.status === "pending");
+  const pendingApproval = approvals.find(
+    (approval) => approval.projectId === selectedProjectId && approval.status === "pending"
+  );
   const runtimeTone = hermesStatus === "connected" ? "connected" : hermesStatus === "error" ? "failed" : "not_connected";
   const runtimeLabel = hermesStatus === "connected" ? "Hermes 연결됨" : hermesStatus === "testing" ? "Hermes 확인 중" : hermesStatus === "error" ? "Hermes 오류" : "Hermes 미연결";
 
@@ -141,6 +145,27 @@ export function ExecutionPanel() {
                     </div>
                     <p className="text-sm font-semibold text-ink">{pendingApproval.action}</p>
                     <p className="mt-1 text-xs leading-5 text-stone-700">{pendingApproval.whatWillHappen}</p>
+                    <p className="mt-2 text-xs leading-5 text-stone-700">{pendingApproval.expectedResult}</p>
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => resolveApproval(pendingApproval.id, "approved")}
+                        className="rounded-md bg-ink px-3 py-2 text-xs font-semibold text-white hover:bg-moss"
+                      >
+                        승인
+                      </button>
+                      <button
+                        onClick={() => resolveApproval(pendingApproval.id, "revise")}
+                        className="rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-ink hover:bg-panel"
+                      >
+                        수정
+                      </button>
+                      <button
+                        onClick={() => resolveApproval(pendingApproval.id, "cancelled")}
+                        className="rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-stone-600 hover:bg-panel"
+                      >
+                        취소
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <p className="rounded-md border border-dashed border-line bg-white p-4 text-xs leading-5 text-stone-600">

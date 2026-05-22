@@ -1,250 +1,238 @@
 import {
-  ArrowRight,
-  BrainCircuit,
+  Bot,
   CheckCircle2,
-  FolderKanban,
-  LockKeyhole,
+  Code2,
+  FolderPlus,
+  Loader2,
   Play,
+  Settings2,
   ShieldCheck,
-  Sparkles,
-  Wrench,
+  TerminalSquare,
+  UserRound,
 } from "lucide-react";
-import { useState } from "react";
-import { hermesStrengths, sandboxModeOptions } from "../../data/mockData";
+import { useMemo, useState } from "react";
 import { useQarkoStore } from "../../store/useQarkoStore";
-import type { AutomationMode } from "../../types/qarko";
+import type { AutomationMode, LogEntry } from "../../types/qarko";
 import { StatusBadge } from "../ui/StatusBadge";
 
-const modeToPolicy = {
-  manual: sandboxModeOptions[0],
-  assisted: sandboxModeOptions[1],
-  automation: sandboxModeOptions[2],
-  custom: sandboxModeOptions[1],
+const starterPrompts = [
+  "이 프로젝트 구조를 보고 MVP로 만들 첫 기능을 추천하고 바로 작업 계획을 세워줘.",
+  "현재 앱에서 사용자가 막힐 수 있는 UX를 찾아서 수정 우선순위를 정리해줘.",
+  "이 아이디어를 실제 배포 가능한 작은 제품으로 만들기 위한 파일/기능 목록을 작성해줘.",
+];
+
+const modeLabels: Record<AutomationMode, string> = {
+  manual: "보기/초안",
+  assisted: "샌드박스",
+  automation: "자동 실행",
+  custom: "개발자",
+};
+
+const ChatBubble = ({ log }: { log: LogEntry }) => {
+  const isUser = log.roleName === "User";
+  const isHermes = log.roleName === "Hermes";
+  const Icon = isUser ? UserRound : isHermes ? Bot : TerminalSquare;
+
+  return (
+    <article className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
+      {!isUser ? (
+        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line bg-white text-moss">
+          <Icon className="h-4 w-4" />
+        </div>
+      ) : null}
+      <div
+        className={`max-w-[82%] rounded-md border p-3 shadow-sm ${
+          isUser ? "border-ink bg-ink text-white" : "border-line bg-white text-stone-700"
+        }`}
+      >
+        <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
+          <span className={isUser ? "text-white" : "text-ink"}>{isUser ? "나" : log.roleName}</span>
+          <span className={isUser ? "text-white/65" : "text-moss"}>{log.timestamp}</span>
+          <StatusBadge tone={log.status} />
+        </div>
+        <p className="whitespace-pre-wrap text-sm leading-6">{log.message}</p>
+      </div>
+      {isUser ? (
+        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-ink text-white">
+          <Icon className="h-4 w-4" />
+        </div>
+      ) : null}
+    </article>
+  );
 };
 
 export function WorkspaceDashboard() {
   const {
     activeRun,
     actionNotice,
-    approvals,
-    artifacts,
     hermesConnection,
-    hermesInstallStatus,
     hermesStatus,
+    openHermesOnboarding,
     projects,
     runWorkbenchTask,
-    selectProject,
     selectedProjectId,
     setAutomationMode,
     setView,
   } = useQarkoStore();
-  const [quickTask, setQuickTask] = useState("");
-  const [quickMode, setQuickMode] = useState<AutomationMode>("assisted");
+  const [prompt, setPrompt] = useState("");
+  const [mode, setMode] = useState<AutomationMode>("assisted");
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
-  const activeMode = selectedProject?.automationMode ?? quickMode;
-  const selectedMode = modeToPolicy[activeMode];
-  const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
-  const hermesReady = hermesStatus === "connected";
-  const canRun = Boolean(selectedProject) || quickTask.trim().length > 0;
-  const suggestedTask =
-    selectedProject?.nextAction ??
-    "예: Threads에서 QARKO OS 베타 테스터 5명을 모집하기 위한 7일 실행 계획과 첫 게시글 초안을 만들어줘.";
+  const canSend = prompt.trim().length > 0 && activeRun.status !== "running";
+  const isConnected = hermesStatus === "connected";
 
-  const changeMode = (mode: AutomationMode) => {
-    setQuickMode(mode);
-    if (selectedProject) setAutomationMode(mode);
+  const chatLogs = useMemo(() => {
+    if (activeRun.logs.length > 0) return activeRun.logs;
+    return [
+      {
+        id: "empty-assistant",
+        timestamp: "now",
+        roleName: "QARKO OS",
+        message:
+          "프로젝트를 만들거나 바로 아래 채팅에 작업을 입력하세요. QARKO OS가 내부에서 Hermes CLI를 실행하고 결과, 로그, 산출물을 오른쪽 패널에 정리합니다.",
+        status: "planned" as const,
+      },
+    ];
+  }, [activeRun.logs]);
+
+  const sendPrompt = (value = prompt) => {
+    const trimmed = value.trim();
+    if (!trimmed || activeRun.status === "running") return;
+    void runWorkbenchTask(trimmed, mode);
+    setPrompt("");
   };
 
-  const runTask = () => {
-    void runWorkbenchTask(quickTask || suggestedTask, activeMode);
-    setQuickTask("");
+  const changeMode = (nextMode: AutomationMode) => {
+    setMode(nextMode);
+    if (selectedProject) setAutomationMode(nextMode);
   };
 
   return (
-    <div className="mx-auto max-w-6xl p-5 lg:p-8">
-      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-moss">QARKO 작업실</p>
-          <h1 className="mt-1 text-3xl font-bold text-ink">오늘 할 일을 Hermes로 바로 실행하세요</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-600">
-            모델 선택, 도구 실행, 승인 대기, 산출물 확인을 한 화면에서 처리합니다. 터미널을 몰라도 Hermes의 강점을
-            사업 실행 흐름으로 사용할 수 있게 만드는 것이 QARKO OS의 역할입니다.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <StatusBadge tone={hermesReady ? "connected" : "not_connected"} label={hermesReady ? "Hermes 연결됨" : "Hermes 준비 필요"} />
-          <StatusBadge tone={activeRun.status} />
-        </div>
-      </div>
-
-      <div className="mb-5 rounded-md border border-line bg-white p-4 text-sm leading-6 text-stone-700 shadow-sm">
-        <span className="font-semibold text-ink">현재 상태: </span>
-        {actionNotice}
-      </div>
-
-      <section className="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="rounded-md border border-line bg-white p-5 shadow-sm">
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-moss">
-                <FolderKanban className="h-4 w-4" />
-                현재 작업실
-              </div>
-              <h2 className="mt-2 text-2xl font-bold text-ink">{selectedProject?.name ?? "아직 프로젝트가 없습니다"}</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-                {selectedProject?.idea ?? "첫 작업을 입력하면 QARKO가 자동으로 프로젝트를 만들고 Hermes 실행 흐름에 연결합니다."}
-              </p>
+    <div className="flex min-h-full flex-col bg-[#f7f7f4]">
+      <header className="border-b border-line bg-[#fbfbf8] px-5 py-4">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-2.5 py-1 text-xs font-semibold text-moss">
+                <Code2 className="h-3.5 w-3.5" />
+                Hermes Workbench
+              </span>
+              <StatusBadge tone={isConnected ? "connected" : "not_connected"} label={isConnected ? "Hermes 연결됨" : "Hermes 준비 필요"} />
+              <StatusBadge tone={activeRun.status} />
             </div>
+            <h1 className="truncate text-xl font-bold text-ink">
+              {selectedProject ? selectedProject.name : "새 Hermes 프로젝트"}
+            </h1>
+            <p className="mt-1 line-clamp-2 max-w-4xl text-sm leading-6 text-stone-600">
+              {selectedProject
+                ? selectedProject.idea
+                : "Codex 앱처럼 프로젝트 안에서 Hermes와 대화하며 코드, 문서, 웹앱, 사업 작업을 진행합니다."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setView("new-project")}
-              className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-panel px-4 py-2 text-sm font-semibold text-ink hover:bg-white"
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-sm font-semibold text-ink hover:bg-panel"
             >
-              <Sparkles className="h-4 w-4" />새 프로젝트
+              <FolderPlus className="h-4 w-4" />새 프로젝트
+            </button>
+            <button
+              onClick={openHermesOnboarding}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-moss"
+            >
+              <Settings2 className="h-4 w-4" />
+              Hermes 설정
             </button>
           </div>
-
-          <div className="rounded-md border border-line bg-panel p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
-              <Play className="h-4 w-4 text-signal" />
-              오늘 할 작업
-            </div>
-            <textarea
-              value={quickTask}
-              onChange={(event) => setQuickTask(event.target.value)}
-              placeholder={suggestedTask}
-              className="min-h-28 w-full resize-y rounded-md border border-line bg-white p-4 text-sm leading-6 text-stone-700 outline-none focus:border-signal"
-            />
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-ink">
-                모델: {hermesConnection.modelName || "미선택"}
-              </span>
-              <span className="rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-ink">권한: {selectedMode.label}</span>
-              <span className="rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-ink">설치: {hermesInstallStatus}</span>
-              <button
-                onClick={runTask}
-                disabled={!canRun || activeRun.status === "running"}
-                className="ml-auto inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Play className="h-4 w-4" />
-                Hermes 실행
-              </button>
-            </div>
-          </div>
         </div>
+      </header>
 
-        <aside className="rounded-md border border-line bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-signal" />
-            <h3 className="text-sm font-bold text-ink">샌드박스(안전 승인 모드)</h3>
-          </div>
-          <p className="text-sm leading-6 text-stone-600">
-            베타에서는 작업 범위를 사용자가 먼저 고르고, 위험 작업은 승인 대기 항목으로 보여줍니다. OS 수준 파일 격리는
-            상용화 전 추가 예정이며 현재는 검증된 Hermes 실행 파일과 승인 UX를 중심으로 보호합니다.
-          </p>
-          <div className="mt-3 space-y-2">
-            {sandboxModeOptions.map((mode) => (
-              <button
-                key={mode.id}
-                onClick={() => changeMode(mode.id)}
-                className={`w-full rounded-md border p-3 text-left text-xs leading-5 transition ${
-                  selectedMode.id === mode.id ? "border-signal bg-panel" : "border-line bg-white hover:bg-panel"
-                }`}
-              >
-                <span className="font-bold text-ink">{mode.label}</span>
-                <span className="mt-1 block text-stone-600">{mode.summary}</span>
-              </button>
-            ))}
-          </div>
-        </aside>
-      </section>
-
-      <section className="mb-5 grid gap-4 lg:grid-cols-4">
-        {hermesStrengths.map((item, index) => {
-          const Icon = [BrainCircuit, Wrench, LockKeyhole, CheckCircle2][index] ?? BrainCircuit;
-          return (
-            <div key={item.title} className="rounded-md border border-line bg-white p-4 shadow-sm">
-              <Icon className="mb-3 h-5 w-5 text-signal" />
-              <h3 className="text-sm font-bold text-ink">{item.title}</h3>
-              <p className="mt-2 text-xs leading-5 text-stone-600">{item.description}</p>
-            </div>
-          );
-        })}
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr]">
-        <div className="rounded-md border border-line bg-white p-4 shadow-sm">
-          <h3 className="mb-3 text-sm font-bold text-ink">작업 단계</h3>
-          <div className="space-y-2">
-            {(selectedProject?.tasks ?? []).slice(0, 4).map((task) => (
-              <div key={task.id} className="rounded-md border border-line bg-panel p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-ink">{task.title}</p>
-                  <StatusBadge tone={task.status} />
-                </div>
-                <p className="mt-1 text-xs leading-5 text-stone-600">{task.description}</p>
+      <div className="min-h-0 flex-1">
+        <section className="flex h-full min-h-0 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto p-5 thin-scrollbar">
+            <div className="mx-auto flex max-w-4xl flex-col gap-4">
+              <div className="rounded-md border border-line bg-white p-3 text-sm leading-6 text-stone-700 shadow-sm">
+                <span className="font-semibold text-ink">상태: </span>
+                {actionNotice}
               </div>
-            ))}
-            {!selectedProject ? (
-              <p className="rounded-md border border-dashed border-line bg-panel p-4 text-sm leading-6 text-stone-600">
-                첫 작업을 실행하면 QARKO가 단계와 역할을 자동으로 정리합니다.
-              </p>
-            ) : null}
-          </div>
-        </div>
 
-        <div className="rounded-md border border-line bg-white p-4 shadow-sm">
-          <h3 className="mb-3 text-sm font-bold text-ink">승인 대기</h3>
-          <div className="space-y-2">
-            {pendingApprovals.length > 0 ? (
-              pendingApprovals.slice(0, 3).map((approval) => (
-                <div key={approval.id} className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-stone-700">
-                  <p className="font-bold text-ink">{approval.action}</p>
-                  <p className="mt-1">{approval.whatWillHappen}</p>
+              {chatLogs.map((log) => (
+                <ChatBubble key={log.id} log={log} />
+              ))}
+
+              {activeRun.outputPreview ? (
+                <article className="rounded-md border border-line bg-white p-4 shadow-sm">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-bold text-ink">
+                    <CheckCircle2 className="h-4 w-4 text-signal" />
+                    Hermes 결과
+                  </div>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700">{activeRun.outputPreview}</p>
+                </article>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="border-t border-line bg-[#fbfbf8] p-4">
+            <div className="mx-auto max-w-4xl">
+              {!selectedProject && projects.length === 0 ? (
+                <div className="mb-3 grid gap-2 lg:grid-cols-3">
+                  {starterPrompts.map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => sendPrompt(item)}
+                      className="rounded-md border border-line bg-white p-3 text-left text-xs leading-5 text-stone-600 hover:bg-panel"
+                    >
+                      {item}
+                    </button>
+                  ))}
                 </div>
-              ))
-            ) : (
-              <p className="rounded-md border border-dashed border-line bg-panel p-4 text-sm leading-6 text-stone-600">
-                현재 승인 대기 작업이 없습니다.
-              </p>
-            )}
-          </div>
-        </div>
+              ) : null}
 
-        <div className="rounded-md border border-line bg-white p-4 shadow-sm">
-          <h3 className="mb-3 text-sm font-bold text-ink">최근 산출물</h3>
-          <div className="space-y-2">
-            {artifacts.slice(0, 3).map((artifact) => (
-              <button key={artifact.id} className="w-full rounded-md border border-line bg-panel p-3 text-left hover:bg-white">
-                <p className="text-sm font-semibold text-ink">{artifact.title}</p>
-                <p className="mt-1 line-clamp-2 text-xs leading-5 text-stone-600">{artifact.summary}</p>
-              </button>
-            ))}
-            {artifacts.length === 0 ? (
-              <p className="rounded-md border border-dashed border-line bg-panel p-4 text-sm leading-6 text-stone-600">
-                Hermes 실행 결과가 여기에 저장됩니다.
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </section>
-
-      {projects.length > 0 ? (
-        <section className="mt-5 rounded-md border border-line bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-ink">프로젝트 전환</h3>
-            <ArrowRight className="h-4 w-4 text-moss" />
-          </div>
-          <div className="grid gap-2 md:grid-cols-2">
-            {projects.map((project) => (
-              <button key={project.id} onClick={() => selectProject(project.id)} className="rounded-md border border-line bg-panel p-3 text-left hover:bg-white">
-                <p className="text-sm font-semibold text-ink">{project.name}</p>
-                <p className="mt-1 line-clamp-2 text-xs leading-5 text-stone-600">{project.idea}</p>
-              </button>
-            ))}
+              <div className="rounded-md border border-line bg-white p-3 shadow-sm">
+                <textarea
+                  value={prompt}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) sendPrompt();
+                  }}
+                  placeholder="Hermes에게 맡길 작업을 입력하세요. 예: 이 프로젝트를 실행 가능한 MVP로 만들고 필요한 파일을 수정해줘."
+                  className="min-h-24 w-full resize-y border-0 bg-transparent text-sm leading-6 text-ink outline-none"
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+                  {(["manual", "assisted", "automation", "custom"] as AutomationMode[]).map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => changeMode(item)}
+                      className={`rounded-md border px-2.5 py-1.5 text-xs font-semibold ${
+                        mode === item ? "border-signal bg-panel text-ink" : "border-line bg-white text-stone-600 hover:bg-panel"
+                      }`}
+                    >
+                      {modeLabels[item]}
+                    </button>
+                  ))}
+                  <span className="ml-auto rounded-md border border-line bg-panel px-2.5 py-1.5 text-xs font-semibold text-stone-600">
+                    {hermesConnection.modelName || "모델 미설정"}
+                  </span>
+                  <button
+                    onClick={() => sendPrompt()}
+                    disabled={!canSend}
+                    className="inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {activeRun.status === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                    Hermes 실행
+                  </button>
+                </div>
+                <div className="mt-2 flex items-start gap-2 border-t border-line pt-3 text-xs leading-5 text-stone-600">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-signal" />
+                  <span>
+                    안전 승인 모드: 기본 작업은 프로젝트 범위에서 실행하고, 위험한 파일 삭제/외부 전송/운영 변경은 오른쪽 실행 패널에서 확인합니다.
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
-      ) : null}
+      </div>
     </div>
   );
 }

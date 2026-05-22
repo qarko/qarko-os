@@ -68,6 +68,7 @@ interface QarkoState {
   feedback: FeedbackEntry[];
   reviewNotes: ReviewNote[];
   activeRun: Run;
+  pendingPrompt: string;
   actionNotice: string;
   automationPolicies: typeof automationPolicies;
   syncEndpoint: string;
@@ -188,7 +189,7 @@ const makeProjectBlueprint = (idea: string) => {
 };
 
 const buildProjectFromIdea = (input: NewProjectInput, index: number): Project => {
-  const trimmedIdea = input.idea.trim();
+  const trimmedIdea = redactSensitiveText(input.idea.trim());
   const blueprint = makeProjectBlueprint(trimmedIdea);
   const stageOwners = ["chief", "researcher", "marketer", "reviewer"];
 
@@ -235,30 +236,30 @@ const buildProjectFromIdea = (input: NewProjectInput, index: number): Project =>
 
 const makeWorkspaceSnapshot = (state: QarkoState): WorkspaceSnapshot => ({
   workspace: state.workspace,
-  projects: state.projects,
+  projects: state.projects.map(sanitizeProjectForStorage),
   selectedProjectId: state.selectedProjectId,
   view: state.view,
   approvals: state.approvals,
-  artifacts: state.artifacts,
+  artifacts: state.artifacts.map(sanitizeArtifactForStorage),
   plugins: state.plugins,
-  feedback: state.feedback,
-  reviewNotes: state.reviewNotes,
-  activeRun: state.activeRun,
-  actionNotice: state.actionNotice,
+  feedback: state.feedback.map(sanitizeFeedbackForStorage),
+  reviewNotes: state.reviewNotes.map(sanitizeReviewNoteForStorage),
+  activeRun: sanitizeRunForStorage(state.activeRun),
+  actionNotice: redactSensitiveText(state.actionNotice),
 });
 
 const applyWorkspaceSnapshot = (snapshot: WorkspaceSnapshot) => ({
   workspace: snapshot.workspace,
-  projects: snapshot.projects,
+  projects: snapshot.projects.map(sanitizeProjectForStorage),
   selectedProjectId: snapshot.selectedProjectId,
   view: snapshot.view,
   approvals: snapshot.approvals,
-  artifacts: snapshot.artifacts,
+  artifacts: snapshot.artifacts.map(sanitizeArtifactForStorage),
   plugins: snapshot.plugins,
-  feedback: snapshot.feedback ?? [],
-  reviewNotes: snapshot.reviewNotes ?? [],
-  activeRun: snapshot.activeRun,
-  actionNotice: snapshot.actionNotice,
+  feedback: (snapshot.feedback ?? []).map(sanitizeFeedbackForStorage),
+  reviewNotes: (snapshot.reviewNotes ?? []).map(sanitizeReviewNoteForStorage),
+  activeRun: sanitizeRunForStorage(snapshot.activeRun),
+  actionNotice: redactSensitiveText(snapshot.actionNotice),
 });
 
 const mergeFeedbackEntries = (local: FeedbackEntry[], remote: FeedbackEntry[]) => {
@@ -285,8 +286,8 @@ const emptyRun: Run = {
 const buildRunForProject = (project: Project): Run => ({
   id: `run-${project.id}`,
   projectId: project.id,
-  title: `${project.name} MVP 실행`,
-  activeRoleName: "Chief of Staff",
+  title: `${project.name} Hermes 세션`,
+  activeRoleName: "Hermes",
   modelName: "Hermes 연결 필요",
   status: "planned",
   logs: [
@@ -294,32 +295,108 @@ const buildRunForProject = (project: Project): Run => ({
       id: `log-${project.id}-start`,
       timestamp: "now",
       roleName: "QARKO OS",
-      message: "프로젝트가 생성되었습니다. Hermes 연결 후 다음 단계 실행을 누르면 실제 MVP 초안을 생성합니다.",
+      message: "프로젝트가 생성되었습니다. 이제 채팅에 작업을 입력하면 QARKO OS가 Hermes CLI 실행 흐름으로 연결합니다.",
       status: "planned",
     },
   ],
-  outputPreview: "아직 생성된 산출물이 없습니다. 오른쪽 Live 패널에서 다음 단계 실행을 눌러 시작하세요.",
+  outputPreview: "",
   stepCount: 0,
 });
 
-const buildMvpPrompt = (project: Project, run: Run) => [
-  "너는 QARKO OS의 1인 AI 회사 운영 에이전트다.",
-  "사용자가 실제 베타 테스트에서 MVP 하나를 만들 수 있도록 바로 실행 가능한 결과를 한국어로 작성해라.",
+const buildHermesChatPrompt = (project: Project, run: Run, userPrompt: string) => [
+  "You are Hermes running inside QARKO OS, a Windows desktop workbench inspired by Codex.",
+  "Respond as an execution agent, not as a marketing dashboard.",
+  "The user expects practical work: inspect, plan, edit, write, debug, and summarize the result clearly.",
+  "Keep all outputs grounded in the current project and write in Korean unless the user asks otherwise.",
   "",
-  `프로젝트명: ${project.name}`,
-  `아이디어: ${project.idea}`,
-  `목표: ${project.goal.title}`,
-  `성공 기준: ${project.goal.metric}`,
-  `자동화 모드: ${project.automationMode}`,
-  `현재 단계: ${run.stepCount + 1}`,
+  `Project: ${project.name}`,
+  `Project brief: ${project.idea}`,
+  `Mode: ${project.automationMode}`,
+  `Turn: ${run.stepCount + 1}`,
   "",
-  "출력 형식:",
-  "## 오늘 만들 MVP",
-  "## 3단계 실행 계획",
-  "## 바로 쓸 수 있는 초안",
-  "## 확인해야 할 리스크",
-  "## 다음 버튼을 눌렀을 때 이어갈 작업",
+  "User request:",
+  userPrompt,
+  "",
+  "Return format:",
+  "## 실행 요약",
+  "## 변경/작성한 내용",
+  "## 확인이 필요한 부분",
+  "## 다음에 입력하면 좋은 요청",
 ].join("\n");
+
+const redactSensitiveText = (value: string) =>
+  value
+    .replace(/\b(sk-[A-Za-z0-9_-]{12,}|pk-[A-Za-z0-9_-]{12,})\b/g, "[redacted_api_key]")
+    .replace(/\b([A-Za-z0-9_-]*api[_-]?key[A-Za-z0-9_-]*\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
+    .replace(/\b([A-Za-z0-9_-]*(token|secret|password|passwd|pwd)[A-Za-z0-9_-]*\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
+    .replace(/\b(ghp|github_pat|xox[baprs]|hf|rk|anthropic|openai|AIza)[A-Za-z0-9_:\-.]{16,}\b/g, "[redacted_secret]");
+
+const sanitizeRunForStorage = (run: Run): Run => ({
+  ...run,
+  outputPreview: redactSensitiveText(run.outputPreview),
+  logs: run.logs.map((log) => ({ ...log, message: redactSensitiveText(log.message) })),
+});
+
+const sanitizeArtifactForStorage = (artifact: Artifact): Artifact => ({
+  ...artifact,
+  summary: redactSensitiveText(artifact.summary),
+});
+
+const sanitizeProjectForStorage = (project: Project): Project => ({
+  ...project,
+  name: redactSensitiveText(project.name),
+  idea: redactSensitiveText(project.idea),
+  goal: {
+    ...project.goal,
+    title: redactSensitiveText(project.goal.title),
+    metric: redactSensitiveText(project.goal.metric),
+  },
+  workflow: {
+    ...project.workflow,
+    title: redactSensitiveText(project.workflow.title),
+    description: redactSensitiveText(project.workflow.description),
+    stages: project.workflow.stages.map((stage) => ({ ...stage, title: redactSensitiveText(stage.title) })),
+  },
+  tasks: project.tasks.map((task) => ({
+    ...task,
+    title: redactSensitiveText(task.title),
+    description: redactSensitiveText(task.description),
+  })),
+  roles: project.roles.map((role) => ({
+    ...role,
+    mission: redactSensitiveText(role.mission),
+    currentFocus: redactSensitiveText(role.currentFocus),
+  })),
+  risks: project.risks.map(redactSensitiveText),
+  nextAction: redactSensitiveText(project.nextAction),
+});
+
+const sanitizeFeedbackForStorage = (item: FeedbackEntry): FeedbackEntry => ({
+  ...item,
+  message: redactSensitiveText(item.message),
+  testerName: item.testerName ? redactSensitiveText(item.testerName) : item.testerName,
+  testerContact: item.testerContact ? redactSensitiveText(item.testerContact) : item.testerContact,
+});
+
+const sanitizeReviewNoteForStorage = (note: ReviewNote): ReviewNote => ({
+  ...note,
+  target: redactSensitiveText(note.target),
+  message: redactSensitiveText(note.message),
+});
+
+const approvalFingerprintForPrompt = (projectId: string, prompt: string) => {
+  let hash = 2166136261;
+  for (let index = 0; index < prompt.length; index += 1) {
+    hash ^= prompt.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `approval-${projectId}-${(hash >>> 0).toString(16)}`;
+};
+
+const needsManualApprovalForPrompt = (prompt: string) =>
+  /(delete|remove|rm\s+-rf|format|wipe|deploy|publish|production|upload|send\s+to|external|webhook|env|api\s*key|token|secret|password|삭제|제거|배포|운영|업로드|외부\s*전송|웹훅|환경\s*변수|비밀키|토큰|패스워드|비밀번호)/i.test(
+    prompt
+  );
 
 const toolsetsForHermesPreset = (mode: HermesToolPreset) => {
   if (mode === "developer") return "web,file,terminal,browser,skills,memory,session_search,delegation,todo";
@@ -339,6 +416,7 @@ export const useQarkoStore = create<QarkoState>()(
       feedback: [],
       reviewNotes: [],
       activeRun: emptyRun,
+      pendingPrompt: "",
       actionNotice: "베타 테스트를 시작하려면 먼저 본인의 사업 아이디어로 새 프로젝트를 만드세요.",
       automationPolicies,
       syncEndpoint: getDefaultSyncEndpoint(),
@@ -369,7 +447,16 @@ export const useQarkoStore = create<QarkoState>()(
       hermesUpdateStatus: "idle",
       hermesUpdateMessage: "업데이트는 QARKO가 확인한 버전으로만 진행합니다. 새 버전 적용도 사용자가 직접 승인해야 시작됩니다.",
       showHermesOnboarding: false,
-      selectProject: (projectId) => set({ selectedProjectId: projectId, view: "project" }),
+      selectProject: (projectId) =>
+        set((state) => {
+          const project = state.projects.find((item) => item.id === projectId);
+          return {
+            selectedProjectId: projectId,
+            view: "workspace",
+            activeRun: project && state.activeRun.projectId !== projectId ? buildRunForProject(project) : state.activeRun,
+            actionNotice: project ? `"${project.name}" Hermes 채팅을 열었습니다.` : "프로젝트를 선택했습니다.",
+          };
+        }),
       setView: (view) => set({ view }),
       createProject: (input) =>
         set((state) => {
@@ -377,9 +464,9 @@ export const useQarkoStore = create<QarkoState>()(
           return {
             projects: [project, ...state.projects],
             selectedProjectId: project.id,
-            view: "project",
+            view: "workspace",
             activeRun: buildRunForProject(project),
-            actionNotice: `"${project.name}" 프로젝트를 만들었습니다. Hermes 연결 후 오른쪽 Live 패널에서 실제 MVP 초안을 생성하세요.`,
+            actionNotice: `"${project.name}" 프로젝트를 만들었습니다. 중앙 채팅창에 Hermes에게 맡길 작업을 입력하세요.`,
           };
         }),
       setAutomationMode: (mode) =>
@@ -395,7 +482,12 @@ export const useQarkoStore = create<QarkoState>()(
           const decisionLabel = decision === "approved" ? "승인" : decision === "revise" ? "수정 요청" : "취소";
           return {
             approvals: state.approvals.map((item) => (item.id === approvalId ? { ...item, status: decision } : item)),
-            actionNotice: approval ? `"${approval.action}" 작업을 ${decisionLabel} 처리했습니다.` : "승인 요청을 처리했습니다.",
+            pendingPrompt: decision === "approved" ? state.pendingPrompt : "",
+            actionNotice: approval
+              ? decision === "approved"
+                ? `"${approval.action}" 작업을 ${decisionLabel} 처리했습니다. 다시 실행하면 이어서 진행합니다.`
+                : `"${approval.action}" 작업을 ${decisionLabel} 처리했습니다. 채팅창에서 요청을 수정해 다시 보내세요.`
+              : "승인 요청을 처리했습니다.",
           };
         }),
       togglePlugin: (pluginId) =>
@@ -411,24 +503,30 @@ export const useQarkoStore = create<QarkoState>()(
         const trimmedIdea = idea.trim();
         const state = get();
         if (!state.selectedProjectId && !state.projects.length && !trimmedIdea) {
-          set({ actionNotice: "오늘 Hermes로 맡길 첫 작업을 입력해 주세요." });
+          set({ actionNotice: "Hermes에게 보낼 첫 메시지를 입력해 주세요." });
           return;
         }
+        const userPrompt = trimmedIdea || "이 프로젝트에서 다음으로 해야 할 작업을 추천하고 바로 실행해줘.";
         if (trimmedIdea && (!state.selectedProjectId || !state.projects.length)) {
           const project = buildProjectFromIdea({ idea: trimmedIdea, mode, customRules: defaultRules }, state.projects.length + 1);
+          const initialRun = buildRunForProject(project);
           set((current) => ({
             projects: [project, ...current.projects],
             selectedProjectId: project.id,
             view: "workspace",
-            activeRun: buildRunForProject(project),
-            actionNotice: `"${project.name}" 작업실을 만들고 Hermes 실행을 준비했습니다.`,
+            activeRun: initialRun,
+            pendingPrompt: userPrompt,
+            actionNotice: `"${project.name}" 프로젝트를 만들고 Hermes 채팅 실행을 준비했습니다.`,
           }));
         } else if (!state.selectedProjectId && state.projects[0]) {
           set({
             selectedProjectId: state.projects[0].id,
             view: "workspace",
             activeRun: buildRunForProject(state.projects[0]),
+            pendingPrompt: userPrompt,
           });
+        } else {
+          set({ pendingPrompt: userPrompt });
         }
         await get().runNextStep();
       },
@@ -436,21 +534,63 @@ export const useQarkoStore = create<QarkoState>()(
         const state = get();
         const project = state.projects.find((item) => item.id === state.selectedProjectId);
         if (!project) {
-          set({ actionNotice: "오늘 Hermes로 맡길 작업을 먼저 입력해 주세요.", view: "workspace" });
+          set({ actionNotice: "Hermes와 대화할 프로젝트나 첫 메시지가 필요합니다.", view: "workspace" });
           return;
         }
         if (state.activeRun.status === "running") {
           set({ actionNotice: "이미 Hermes 실행이 진행 중입니다. 완료 후 다시 실행하세요." });
           return;
         }
+        const userPrompt = state.pendingPrompt.trim() || project.nextAction || "다음 작업을 이어서 진행해줘.";
         const hasPendingApproval = state.approvals.some(
           (approval) => approval.projectId === project.id && approval.status === "pending"
         );
-        if (hasPendingApproval && project.automationMode !== "automation") {
+        if (hasPendingApproval) {
           set({
             actionNotice:
               "샌드박스(안전 승인 모드): 승인 대기 작업을 먼저 확인하세요. 베타에서는 위험 작업을 승인 목록에 세워두고 사용자가 직접 진행 여부를 정합니다.",
           });
+          return;
+        }
+        const approvalId = approvalFingerprintForPrompt(project.id, userPrompt);
+        const approvalAction = `Hermes 위험 작업 승인: ${redactSensitiveText(userPrompt).slice(0, 80)}`;
+        const approvalForPrompt = state.approvals.find(
+          (approval) => approval.projectId === project.id && approval.id === approvalId
+        );
+        if (
+          needsManualApprovalForPrompt(userPrompt) &&
+          approvalForPrompt?.status !== "approved"
+        ) {
+          set((current) => ({
+            approvals: approvalForPrompt
+              ? current.approvals.map((approval) =>
+                  approval.id === approvalId
+                    ? {
+                        ...approval,
+                        action: approvalAction,
+                        whatWillHappen: "Hermes가 파일/외부 전송/배포/비밀값과 관련될 수 있는 요청을 실행하기 전에 사용자 승인을 기다립니다.",
+                        expectedResult: "사용자가 오른쪽 승인 패널에서 작업 범위와 위험을 확인한 뒤 승인하면 같은 메시지를 실행합니다.",
+                        risk: "high",
+                        status: "pending",
+                      }
+                    : approval
+                )
+              : [
+                  {
+                    id: approvalId,
+                    projectId: project.id,
+                    action: approvalAction,
+                    whatWillHappen: "Hermes가 파일/외부 전송/배포/비밀값과 관련될 수 있는 요청을 실행하기 전에 사용자 승인을 기다립니다.",
+                    expectedResult: "사용자가 오른쪽 승인 패널에서 작업 범위와 위험을 확인한 뒤 승인하면 같은 메시지를 실행합니다.",
+                    risk: "high",
+                    status: "pending",
+                  },
+                  ...current.approvals,
+                ],
+            pendingPrompt: userPrompt,
+            actionNotice:
+              "안전 승인 모드: 위험할 수 있는 요청을 감지했습니다. 오른쪽 승인 패널에서 내용을 확인하고 승인한 뒤 다시 실행하세요.",
+          }));
           return;
         }
         const provider = getHermesProviderOption(state.hermesSetupProvider);
@@ -473,31 +613,39 @@ export const useQarkoStore = create<QarkoState>()(
 
         const nextStep = state.activeRun.stepCount + 1;
         const runId = state.activeRun.id;
+        const safeUserPrompt = redactSensitiveText(userPrompt);
+        const userLog = {
+          id: `log-${project.id}-${nextStep}-user`,
+          timestamp: "now",
+          roleName: "User",
+          message: safeUserPrompt,
+          status: "completed" as const,
+        };
         const runningLog = {
           id: `log-${project.id}-${nextStep}-running`,
           timestamp: "now",
           roleName: "Hermes",
-          message: `${state.hermesConnection.modelName || "Hermes"} 모델로 MVP 실행 초안을 생성하고 있습니다.`,
+          message: `${state.hermesConnection.modelName || "Hermes"} 모델로 요청을 실행하고 있습니다.`,
           status: "running" as const,
         };
         set((current) => ({
           activeRun: {
             ...current.activeRun,
             projectId: project.id,
-            title: `${project.name} MVP 실행`,
+            title: `${project.name} Hermes 세션`,
             activeRoleName: "Hermes",
             modelName: current.hermesConnection.modelName || current.activeRun.modelName,
             status: "running",
             stepCount: nextStep,
-            logs: [...current.activeRun.logs, runningLog],
-            outputPreview: "Hermes가 프로젝트 목표를 바탕으로 실행 가능한 MVP 초안을 작성하는 중입니다.",
+            logs: [...current.activeRun.logs, userLog, runningLog],
+            outputPreview: "Hermes가 요청을 처리하는 중입니다.",
           },
-          actionNotice: "Hermes 실제 실행을 시작했습니다.",
+          actionNotice: "Hermes CLI 실행을 시작했습니다.",
         }));
 
         try {
           const result = await runHermesBusinessStep({
-            prompt: buildMvpPrompt(project, state.activeRun),
+            prompt: buildHermesChatPrompt(project, state.activeRun, userPrompt),
             modelName: state.hermesConnection.modelName,
             provider: state.hermesSetupProvider,
             apiKey: state.hermesConnection.apiKey,
@@ -506,13 +654,15 @@ export const useQarkoStore = create<QarkoState>()(
             toolsets: toolsetsForHermesPreset(state.hermesToolPreset),
           });
           const output = result.output.trim() || result.message;
+          const safeOutput = redactSensitiveText(output);
+          const safeResultMessage = redactSensitiveText(result.message);
           const artifact: Artifact | null = result.ok
             ? {
                 id: `artifact-${project.id}-${Date.now()}`,
                 projectId: project.id,
-                title: `MVP 실행 초안 ${nextStep}`,
+                title: `Hermes 응답 ${nextStep}`,
                 type: "draft",
-                summary: output.length > 360 ? `${output.slice(0, 360)}...` : output,
+                summary: safeOutput.length > 360 ? `${safeOutput.slice(0, 360)}...` : safeOutput,
                 createdAt: new Date().toLocaleString(),
               }
             : null;
@@ -527,20 +677,21 @@ export const useQarkoStore = create<QarkoState>()(
               activeRun: {
                 ...current.activeRun,
                 status: result.ok ? "completed" : "failed",
-                outputPreview: output,
+                outputPreview: safeOutput,
                 logs: [
                   ...current.activeRun.logs,
                   {
                     id: `log-${project.id}-${nextStep}-done`,
                     timestamp: "now",
                     roleName: result.ok ? "Hermes" : "QARKO OS",
-                    message: result.ok ? "MVP 실행 초안을 생성하고 산출물 보관함에 저장했습니다." : result.message,
+                    message: result.ok ? safeOutput : safeResultMessage,
                     status: result.ok ? "completed" : "failed",
                   },
                 ],
               },
+              pendingPrompt: "",
               actionNotice: result.ok
-                ? "Hermes가 실제 MVP 초안을 생성했습니다. 산출물 보관함에서 확인하세요."
+                ? "Hermes 응답을 받았습니다. 오른쪽 패널에서 로그와 산출물을 확인하세요."
                 : "Hermes 실행에 실패했습니다. 모델 인증과 설정을 확인하세요.",
             };
           });
@@ -561,12 +712,13 @@ export const useQarkoStore = create<QarkoState>()(
                     id: `log-${project.id}-${nextStep}-error`,
                     timestamp: "now",
                     roleName: "QARKO OS",
-                    message: error instanceof Error ? error.message : "Hermes 실행 중 오류가 발생했습니다.",
+                    message: redactSensitiveText(error instanceof Error ? error.message : "Hermes 실행 중 오류가 발생했습니다."),
                     status: "failed",
                   },
                 ],
               },
-              actionNotice: error instanceof Error ? error.message : "Hermes 실행 중 오류가 발생했습니다.",
+              pendingPrompt: "",
+              actionNotice: redactSensitiveText(error instanceof Error ? error.message : "Hermes 실행 중 오류가 발생했습니다."),
             };
           });
         }
@@ -872,7 +1024,11 @@ export const useQarkoStore = create<QarkoState>()(
       dismissHermesOnboarding: () => set({ showHermesOnboarding: false }),
       addFeedback: (input) =>
         set((state) => {
-          const entry: FeedbackEntry = { ...input, id: `feedback-${Date.now()}`, createdAt: new Date().toLocaleString("ko-KR") };
+          const entry = sanitizeFeedbackForStorage({
+            ...input,
+            id: `feedback-${Date.now()}`,
+            createdAt: new Date().toLocaleString("ko-KR"),
+          });
           return {
             feedback: [entry, ...state.feedback],
             actionNotice: "피드백을 이 PC에 저장했습니다. 피드백 보내기를 누르면 서버와 Discord로 전달됩니다.",
@@ -881,6 +1037,7 @@ export const useQarkoStore = create<QarkoState>()(
       clearFeedback: () => set({ feedback: [], actionNotice: "저장된 피드백을 비웠습니다." }),
       buildFeedbackReport: () => {
         const state = get();
+        const feedbackForReport = state.feedback.map(sanitizeFeedbackForStorage);
         const lines = [
           "# QARKO OS 테스트 피드백",
           "",
@@ -890,8 +1047,8 @@ export const useQarkoStore = create<QarkoState>()(
           `- 프로젝트 수: ${state.projects.length}`,
           "",
           "## 피드백",
-          ...(state.feedback.length > 0
-            ? state.feedback.flatMap((item, index) => [
+          ...(feedbackForReport.length > 0
+            ? feedbackForReport.flatMap((item, index) => [
                 "",
                 `${index + 1}. [${feedbackAreaLabel[item.area]} / ${feedbackEaseLabel[item.ease]}] ${item.createdAt}`,
                 item.testerName ? `- 테스터: ${item.testerName}` : "- 테스터: 미입력",
@@ -905,14 +1062,14 @@ export const useQarkoStore = create<QarkoState>()(
       },
       addReviewNote: (input) =>
         set((state) => {
-          const note: ReviewNote = {
+          const note = sanitizeReviewNoteForStorage({
             id: `note-${Date.now()}`,
             target: input.target.trim() || "현재 화면",
             message: input.message.trim(),
             status: "open",
             createdAt: new Date().toLocaleString("ko-KR"),
-          };
-          const feedbackEntry: FeedbackEntry = {
+          });
+          const feedbackEntry = sanitizeFeedbackForStorage({
             id: `feedback-${Date.now()}-note`,
             area: "other",
             ease: "confusing",
@@ -920,7 +1077,7 @@ export const useQarkoStore = create<QarkoState>()(
             testerName: "QARKO Owner",
             appVersion: "0.1.0",
             createdAt: note.createdAt,
-          };
+          });
           return {
             reviewNotes: [note, ...state.reviewNotes],
             feedback: [feedbackEntry, ...state.feedback],
@@ -940,9 +1097,10 @@ export const useQarkoStore = create<QarkoState>()(
         }
         set({ syncStatus: "syncing", syncError: undefined, actionNotice: "작성한 피드백을 서버와 Discord로 보내는 중입니다." });
         try {
-          const cloudFeedback = await sendFeedbackEntries(state.syncEndpoint, state.feedback);
+          const safeFeedback = state.feedback.map(sanitizeFeedbackForStorage);
+          const cloudFeedback = await sendFeedbackEntries(state.syncEndpoint, safeFeedback);
           set({
-            feedback: mergeFeedbackEntries(state.feedback, cloudFeedback),
+            feedback: mergeFeedbackEntries(safeFeedback, cloudFeedback.map(sanitizeFeedbackForStorage)),
             syncStatus: "synced",
             syncError: undefined,
             actionNotice: `피드백 ${cloudFeedback.length}개를 서버에 저장했습니다. Discord 채널에서도 확인할 수 있습니다.`,
@@ -961,7 +1119,7 @@ export const useQarkoStore = create<QarkoState>()(
         try {
           const cloudFeedback = await loadFeedbackEntries(state.syncEndpoint, state.syncAccessToken);
           set({
-            feedback: mergeFeedbackEntries(state.feedback, cloudFeedback),
+            feedback: mergeFeedbackEntries(state.feedback.map(sanitizeFeedbackForStorage), cloudFeedback.map(sanitizeFeedbackForStorage)),
             syncStatus: "synced",
             syncError: undefined,
             actionNotice: `서버 피드백 ${cloudFeedback.length}개를 불러왔습니다.`,
@@ -1026,16 +1184,16 @@ export const useQarkoStore = create<QarkoState>()(
             ? "not_configured"
             : state.hermesStatus;
         return {
-        projects: state.projects,
+        projects: state.projects.map(sanitizeProjectForStorage),
         selectedProjectId: state.selectedProjectId,
         view: state.view,
         approvals: state.approvals,
-        artifacts: state.artifacts,
+        artifacts: state.artifacts.map(sanitizeArtifactForStorage),
         plugins: state.plugins,
-        feedback: state.feedback,
-        reviewNotes: state.reviewNotes,
-        activeRun: state.activeRun,
-        actionNotice: state.actionNotice,
+        feedback: state.feedback.map(sanitizeFeedbackForStorage),
+        reviewNotes: state.reviewNotes.map(sanitizeReviewNoteForStorage),
+        activeRun: sanitizeRunForStorage(state.activeRun),
+        actionNotice: redactSensitiveText(state.actionNotice),
         syncEndpoint: state.syncEndpoint,
         syncAccessToken: "",
         hermesConnection: { ...state.hermesConnection, apiKey: "" },
