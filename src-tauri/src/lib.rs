@@ -1,10 +1,10 @@
-use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
@@ -15,7 +15,8 @@ use std::os::windows::process::CommandExt;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const HERMES_INSTALL_COMMIT: &str = "a0bd11d0227239674fe378ff8817f8f6129ef5a7";
-const HERMES_INSTALL_SHA256: &str = "E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064";
+const HERMES_INSTALL_SHA256: &str =
+    "E11D0D0CF4FA89041867F362AA10A83B4A9525033F0636D8622C26D22D119064";
 static HERMES_INSTALL_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 static HERMES_PROMPT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -68,6 +69,7 @@ struct CommandResult {
     ok: bool,
     message: String,
     output: String,
+    workspace_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -85,7 +87,9 @@ struct HermesHealthReport {
 fn hermes_candidate_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
-        let base = PathBuf::from(local_app_data).join("hermes").join("hermes-agent");
+        let base = PathBuf::from(local_app_data)
+            .join("hermes")
+            .join("hermes-agent");
         paths.push(base.join("venv").join("Scripts").join("hermes.exe"));
         paths.push(base.join(".venv").join("Scripts").join("hermes.exe"));
     }
@@ -93,7 +97,9 @@ fn hermes_candidate_paths() -> Vec<PathBuf> {
 }
 
 fn find_hermes_executable() -> Option<PathBuf> {
-    hermes_candidate_paths().into_iter().find(|path| path.exists())
+    hermes_candidate_paths()
+        .into_iter()
+        .find(|path| path.exists())
 }
 
 fn qarko_local_app_dir() -> PathBuf {
@@ -114,7 +120,13 @@ fn qarko_workspace_root() -> PathBuf {
 fn sanitize_workspace_segment(value: &str) -> String {
     let cleaned = value
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string();
@@ -125,12 +137,33 @@ fn sanitize_workspace_segment(value: &str) -> String {
     }
 }
 
-fn qarko_workspace_dir(project_id: Option<String>, run_id: Option<String>) -> Result<PathBuf, String> {
+fn qarko_workspace_dir(
+    project_id: Option<String>,
+    run_id: Option<String>,
+) -> Result<PathBuf, String> {
     let project = sanitize_workspace_segment(project_id.as_deref().unwrap_or("project"));
     let run = sanitize_workspace_segment(run_id.as_deref().unwrap_or("run"));
     let dir = qarko_workspace_root().join(project).join(run);
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     Ok(dir)
+}
+
+fn verified_qarko_workspace_path(path: &str) -> Result<PathBuf, String> {
+    let candidate = Path::new(path);
+    if path.trim().is_empty() {
+        return Err("Workspace path is empty.".to_string());
+    }
+    if !candidate.exists() {
+        return Err("Workspace path does not exist yet.".to_string());
+    }
+    let root = qarko_workspace_root();
+    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    let root = fs::canonicalize(&root).map_err(|error| error.to_string())?;
+    let candidate = fs::canonicalize(candidate).map_err(|error| error.to_string())?;
+    if !candidate.starts_with(&root) {
+        return Err("QARKO can only open folders inside its own workspace directory.".to_string());
+    }
+    Ok(candidate)
 }
 
 fn hermes_verification_marker_path() -> PathBuf {
@@ -151,7 +184,8 @@ fn file_sha256_hex(path: &PathBuf) -> Result<String, String> {
 }
 
 fn write_hermes_verified_marker() -> Result<(), String> {
-    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent executable was not found after install.".to_string())?;
+    let hermes = find_hermes_executable()
+        .ok_or_else(|| "Hermes Agent executable was not found after install.".to_string())?;
     let exe_hash = file_sha256_hex(&hermes)?;
     let marker_path = hermes_verification_marker_path();
     if let Some(parent) = marker_path.parent() {
@@ -196,7 +230,8 @@ fn hermes_verified_for_execution(path: &PathBuf) -> bool {
 }
 
 fn verified_hermes_executable() -> Result<PathBuf, String> {
-    let hermes = find_hermes_executable().ok_or_else(|| "Hermes Agent is not installed yet.".to_string())?;
+    let hermes =
+        find_hermes_executable().ok_or_else(|| "Hermes Agent is not installed yet.".to_string())?;
     if !hermes_verified_for_execution(&hermes) {
         return Err("Hermes executable does not match the QARKO verified install state. Run repair/update from the setup wizard first.".to_string());
     }
@@ -278,6 +313,7 @@ fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
             "Command failed.".to_string()
         },
         output: combined,
+        workspace_path: None,
     })
 }
 
@@ -299,18 +335,28 @@ fn command_result_from_output(status_success: bool, stdout: &[u8], stderr: &[u8]
             "Command failed.".to_string()
         },
         output: combined,
+        workspace_path: None,
     }
 }
 
-fn run_hidden_command_with_timeout(command: &mut Command, timeout: Duration) -> Result<CommandResult, String> {
+fn run_hidden_command_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+) -> Result<CommandResult, String> {
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let start = Instant::now();
     let mut child = command.spawn().map_err(|error| error.to_string())?;
-    let mut stdout = child.stdout.take().ok_or_else(|| "Could not open stdout pipe.".to_string())?;
-    let mut stderr = child.stderr.take().ok_or_else(|| "Could not open stderr pipe.".to_string())?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Could not open stdout pipe.".to_string())?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Could not open stderr pipe.".to_string())?;
     let stdout_handle = thread::spawn(move || {
         let mut buffer = Vec::new();
         let _ = stdout.read_to_end(&mut buffer);
@@ -326,7 +372,11 @@ fn run_hidden_command_with_timeout(command: &mut Command, timeout: Duration) -> 
         if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
             let stdout = stdout_handle.join().unwrap_or_default();
             let stderr = stderr_handle.join().unwrap_or_default();
-            return Ok(command_result_from_output(status.success(), &stdout, &stderr));
+            return Ok(command_result_from_output(
+                status.success(),
+                &stdout,
+                &stderr,
+            ));
         }
         if start.elapsed() >= timeout {
             #[cfg(windows)]
@@ -344,6 +394,7 @@ fn run_hidden_command_with_timeout(command: &mut Command, timeout: Duration) -> 
                 ok: false,
                 message: "Hermes execution timed out.".to_string(),
                 output: "Hermes did not finish within 3 minutes. Check auth, network, and model settings, then try again.".to_string(),
+                workspace_path: None,
             });
         }
         thread::sleep(Duration::from_millis(250));
@@ -419,7 +470,11 @@ fn install_hermes() -> Result<String, String> {
     if result.ok {
         Ok("Hermes installation is complete. Continue with model setup.".to_string())
     } else {
-        Err(if result.output.is_empty() { result.message } else { result.output })
+        Err(if result.output.is_empty() {
+            result.message
+        } else {
+            result.output
+        })
     }
 }
 
@@ -438,9 +493,16 @@ fn update_hermes_verified() -> Result<String, String> {
     }
 
     if result.ok {
-        Ok("Hermes was repaired/updated to the QARKO verified version. Check model setup again.".to_string())
+        Ok(
+            "Hermes was repaired/updated to the QARKO verified version. Check model setup again."
+                .to_string(),
+        )
     } else {
-        Err(if result.output.is_empty() { result.message } else { result.output })
+        Err(if result.output.is_empty() {
+            result.message
+        } else {
+            result.output
+        })
     }
 }
 
@@ -519,6 +581,7 @@ fn run_optional_hermes_command(hermes: &PathBuf, args: &[&str]) -> CommandResult
         ok: false,
         message: error,
         output: String::new(),
+        workspace_path: None,
     })
 }
 
@@ -562,7 +625,10 @@ fn wait_for_auth_output(log_path: &PathBuf, timeout: Duration) -> String {
     let mut last_output = String::new();
     while start.elapsed() < timeout {
         let output = fs::read_to_string(log_path).unwrap_or_default();
-        if extract_first_https_url(&output).is_some() || output.contains("Enter this code") || output.contains("Waiting for sign-in") {
+        if extract_first_https_url(&output).is_some()
+            || output.contains("Enter this code")
+            || output.contains("Waiting for sign-in")
+        {
             return output;
         }
         if !output.trim().is_empty() {
@@ -584,7 +650,9 @@ fn open_visible_hermes_terminal(args: &[&str], title: &str) -> Result<(), String
         command_line.push(' ');
         command_line.push_str(&cmd_quote(arg));
     }
-    command_line.push_str(" & echo. & echo QARKO OS: You can close this window after the Hermes task finishes.");
+    command_line.push_str(
+        " & echo. & echo QARKO OS: You can close this window after the Hermes task finishes.",
+    );
 
     Command::new("cmd.exe")
         .args(["/C", "start", title, "cmd.exe", "/K", &command_line])
@@ -596,7 +664,12 @@ fn open_visible_hermes_terminal(args: &[&str], title: &str) -> Result<(), String
 fn oauth_provider_allowed(provider: &str) -> bool {
     matches!(
         provider,
-        "nous" | "openai-codex" | "xai-oauth" | "qwen-oauth" | "google-gemini-cli" | "minimax-oauth"
+        "nous"
+            | "openai-codex"
+            | "xai-oauth"
+            | "qwen-oauth"
+            | "google-gemini-cli"
+            | "minimax-oauth"
     )
 }
 
@@ -614,8 +687,11 @@ fn open_hermes_setup_terminal(section: Option<String>) -> Result<CommandResult, 
     open_visible_hermes_terminal(&args, "QARKO Hermes Setup")?;
     Ok(CommandResult {
         ok: true,
-        message: "Hermes setup terminal opened. Use the visible window to choose models and settings.".to_string(),
+        message:
+            "Hermes setup terminal opened. Use the visible window to choose models and settings."
+                .to_string(),
         output: "Visible terminal launched for hermes setup.".to_string(),
+        workspace_path: None,
     })
 }
 
@@ -632,7 +708,9 @@ fn hermes_health() -> Result<HermesHealthReport, String> {
     let ok = config_check.ok && status.ok && doctor.ok;
     Ok(HermesHealthReport {
         ok,
-        config_path: config_path.ok.then(|| command_output_or_empty(&config_path)),
+        config_path: config_path
+            .ok
+            .then(|| command_output_or_empty(&config_path)),
         env_path: env_path.ok.then(|| command_output_or_empty(&env_path)),
         status_output: command_output_or_empty(&status),
         doctor_output: command_output_or_empty(&doctor),
@@ -647,7 +725,17 @@ fn hermes_health() -> Result<HermesHealthReport, String> {
 
 fn toolsets_for_mode(mode: &str) -> Vec<&'static str> {
     match mode {
-        "developer" => vec!["web", "file", "terminal", "browser", "skills", "memory", "session_search", "delegation", "todo"],
+        "developer" => vec![
+            "web",
+            "file",
+            "terminal",
+            "browser",
+            "skills",
+            "memory",
+            "session_search",
+            "delegation",
+            "todo",
+        ],
         "work" | "automation" => vec!["web", "file", "skills", "memory", "session_search", "todo"],
         _ => vec!["web", "file", "skills", "memory", "session_search", "todo"],
     }
@@ -668,6 +756,7 @@ fn configure_hermes_tool_preset(request: HermesToolPresetRequest) -> Result<Comm
                 ok: false,
                 message: format!("Failed to set Hermes config {}.", key),
                 output: outputs.join("\n"),
+                workspace_path: None,
             });
         }
     }
@@ -681,21 +770,25 @@ fn configure_hermes_tool_preset(request: HermesToolPresetRequest) -> Result<Comm
                 ok: false,
                 message: format!("Failed to enable Hermes toolset {}.", tool),
                 output: outputs.join("\n"),
+                workspace_path: None,
             });
         }
     }
 
     if request.mode.trim() == "safe" {
         for tool in ["terminal", "browser"] {
-            let result = run_hidden_command(Command::new(&hermes).args(["tools", "disable", tool]))?;
+            let result =
+                run_hidden_command(Command::new(&hermes).args(["tools", "disable", tool]))?;
             outputs.push(command_output_or_empty(&result));
         }
     }
 
     Ok(CommandResult {
         ok: true,
-        message: "Hermes tool preset was saved. New QARKO runs will use the updated capabilities.".to_string(),
+        message: "Hermes tool preset was saved. New QARKO runs will use the updated capabilities."
+            .to_string(),
         output: outputs.join("\n"),
+        workspace_path: None,
     })
 }
 
@@ -716,12 +809,17 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             ok: false,
             message: "For security, QARKO does not save API keys through Hermes config commands. The key is used only for the current connection test/run.".to_string(),
             output: outputs.join("\n"),
+            workspace_path: None,
         });
     }
 
     for (key, value, error_message) in [
         ("model.default", model, "Failed to save the Hermes model."),
-        ("model.provider", provider_config.provider, "Failed to save the Hermes provider."),
+        (
+            "model.provider",
+            provider_config.provider,
+            "Failed to save the Hermes provider.",
+        ),
     ] {
         let result = set_hermes_config(&hermes, key, value)?;
         outputs.push(result.output);
@@ -730,6 +828,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
                 ok: false,
                 message: error_message.to_string(),
                 output: outputs.join("\n"),
+                workspace_path: None,
             });
         }
     }
@@ -746,16 +845,22 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             ok: false,
             message: "Failed to save the Hermes API base URL.".to_string(),
             output: outputs.join("\n"),
+            workspace_path: None,
         });
     }
 
-    let api_mode_result = set_hermes_config(&hermes, "model.api_mode", provider_config.api_mode.unwrap_or(""))?;
+    let api_mode_result = set_hermes_config(
+        &hermes,
+        "model.api_mode",
+        provider_config.api_mode.unwrap_or(""),
+    )?;
     outputs.push(api_mode_result.output);
     if !api_mode_result.ok {
         return Ok(CommandResult {
             ok: false,
             message: "Failed to save the Hermes API mode.".to_string(),
             output: outputs.join("\n"),
+            workspace_path: None,
         });
     }
 
@@ -767,6 +872,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             .filter(|value| !value.is_empty())
             .collect::<Vec<_>>()
             .join("\n"),
+        workspace_path: None,
     })
 }
 
@@ -780,14 +886,26 @@ fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, S
     let hermes = verified_hermes_executable()?;
     let runtime_dir = qarko_local_app_dir().join("runtime");
     fs::create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
-    let log_path = runtime_dir.join(format!("qarko-hermes-auth-{}-{}.log", provider, std::process::id()));
+    let log_path = runtime_dir.join(format!(
+        "qarko-hermes-auth-{}-{}.log",
+        provider,
+        std::process::id()
+    ));
     let stdout_file = File::create(&log_path).map_err(|error| error.to_string())?;
     let stderr_file = stdout_file.try_clone().map_err(|error| error.to_string())?;
     let mut command = Command::new(&hermes);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     command
-        .args(["auth", "add", provider, "--type", "oauth", "--timeout", "900"])
+        .args([
+            "auth",
+            "add",
+            provider,
+            "--type",
+            "oauth",
+            "--timeout",
+            "900",
+        ])
         .stdout(Stdio::from(stdout_file))
         .stderr(Stdio::from(stderr_file))
         .spawn()
@@ -812,6 +930,7 @@ fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, S
         } else {
             output
         },
+        workspace_path: None,
     })
 }
 
@@ -821,11 +940,23 @@ fn open_hermes_login_terminal(request: HermesLoginRequest) -> Result<CommandResu
     if !oauth_provider_allowed(provider) {
         return Err("This provider is not supported for QARKO OS OAuth login yet.".to_string());
     }
-    open_visible_hermes_terminal(&["auth", "add", provider, "--type", "oauth", "--timeout", "900"], "QARKO Hermes Login")?;
+    open_visible_hermes_terminal(
+        &[
+            "auth",
+            "add",
+            provider,
+            "--type",
+            "oauth",
+            "--timeout",
+            "900",
+        ],
+        "QARKO Hermes Login",
+    )?;
     Ok(CommandResult {
         ok: true,
         message: "Hermes login window opened. Complete the login there, then return to QARKO OS and press Check auth.".to_string(),
         output: "Visible fallback launched for hermes auth add --type oauth.".to_string(),
+        workspace_path: None,
     })
 }
 
@@ -842,6 +973,7 @@ fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult
             ok: false,
             message: "Provider auth list failed.".to_string(),
             output: error,
+            workspace_path: None,
         });
     let doctor = run_optional_hermes_command(&hermes, &["doctor"]);
     let combined = [
@@ -850,7 +982,11 @@ fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult
         command_output_or_empty(&doctor),
     ]
     .join("\n");
-    let provider_auth_output = [command_output_or_empty(&status), command_output_or_empty(&list)].join("\n");
+    let provider_auth_output = [
+        command_output_or_empty(&status),
+        command_output_or_empty(&list),
+    ]
+    .join("\n");
     let provider_auth_lower = provider_auth_output.to_lowercase();
     let provider_positive = provider_auth_lower.contains("logged in")
         || provider_auth_lower.contains(&format!("{} (", provider))
@@ -868,6 +1004,32 @@ fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult
             "Hermes auth is not complete yet. Finish browser login, then check again. If it still fails, use the advanced Hermes setup fallback.".to_string()
         },
         output: redact_sensitive_output(combined),
+        workspace_path: None,
+    })
+}
+
+#[tauri::command]
+fn open_qarko_workspace_path(path: String) -> Result<CommandResult, String> {
+    let workspace_path = verified_qarko_workspace_path(path.trim())?;
+    #[cfg(windows)]
+    {
+        Command::new("explorer.exe")
+            .arg(&workspace_path)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = workspace_path;
+        return Err(
+            "Opening workspace folders is currently supported on Windows only.".to_string(),
+        );
+    }
+    Ok(CommandResult {
+        ok: true,
+        message: "QARKO workspace folder opened.".to_string(),
+        output: canonical_path_text(&workspace_path),
+        workspace_path: Some(canonical_path_text(&workspace_path)),
     })
 }
 
@@ -889,7 +1051,9 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
         return Err("The task prompt for Hermes is empty.".to_string());
     }
     if prompt.len() > 12000 {
-        return Err("The task prompt is too long. Shorten the project goal and try again.".to_string());
+        return Err(
+            "The task prompt is too long. Shorten the project goal and try again.".to_string(),
+        );
     }
 
     let workspace_dir = qarko_workspace_dir(request.project_id.clone(), request.run_id.clone())?;
@@ -968,13 +1132,18 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
         Ok(CommandResult {
             ok: true,
             message: "Hermes generated the MVP execution draft.".to_string(),
-            output: format!("Workspace: {}\n\n{}", workspace_dir.to_string_lossy(), result.output),
+            output: format!(
+                "Hermes workspace folder is available from the QARKO artifacts panel.\n\n{}",
+                result.output
+            ),
+            workspace_path: Some(canonical_path_text(&workspace_dir)),
         })
     } else {
         Ok(CommandResult {
             ok: false,
             message: "Hermes execution failed.".to_string(),
             output: result.output,
+            workspace_path: Some(canonical_path_text(&workspace_dir)),
         })
     }
 }
@@ -993,6 +1162,7 @@ pub fn run() {
             login_hermes_provider,
             open_hermes_login_terminal,
             check_hermes_auth_status,
+            open_qarko_workspace_path,
             run_hermes_oneshot
         ])
         .run(tauri::generate_context!())

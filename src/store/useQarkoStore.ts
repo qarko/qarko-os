@@ -240,7 +240,7 @@ const makeWorkspaceSnapshot = (state: QarkoState): WorkspaceSnapshot => ({
   selectedProjectId: state.selectedProjectId,
   view: state.view,
   approvals: state.approvals,
-  artifacts: state.artifacts.map(sanitizeArtifactForStorage),
+  artifacts: state.artifacts.map(sanitizeArtifactForCloud),
   plugins: state.plugins,
   feedback: state.feedback.map(sanitizeFeedbackForStorage),
   reviewNotes: state.reviewNotes.map(sanitizeReviewNoteForStorage),
@@ -254,7 +254,7 @@ const applyWorkspaceSnapshot = (snapshot: WorkspaceSnapshot) => ({
   selectedProjectId: snapshot.selectedProjectId,
   view: snapshot.view,
   approvals: snapshot.approvals,
-  artifacts: snapshot.artifacts.map(sanitizeArtifactForStorage),
+  artifacts: snapshot.artifacts.map(sanitizeArtifactForCloud),
   plugins: snapshot.plugins,
   feedback: (snapshot.feedback ?? []).map(sanitizeFeedbackForStorage),
   reviewNotes: (snapshot.reviewNotes ?? []).map(sanitizeReviewNoteForStorage),
@@ -326,6 +326,8 @@ const buildHermesChatPrompt = (project: Project, run: Run, userPrompt: string) =
 
 const redactSensitiveText = (value: string) =>
   value
+    .replace(/\b[A-Za-z]:\\Users\\[^\\\r\n]+\\[^\r\n]*/g, "[redacted_local_path]")
+    .replace(/\b[A-Za-z]:\/Users\/[^\/\r\n]+\/[^\r\n]*/g, "[redacted_local_path]")
     .replace(/\b(sk-[A-Za-z0-9_-]{12,}|pk-[A-Za-z0-9_-]{12,})\b/g, "[redacted_api_key]")
     .replace(/\b([A-Za-z0-9_-]*api[_-]?key[A-Za-z0-9_-]*\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
     .replace(/\b([A-Za-z0-9_-]*(token|secret|password|passwd|pwd)[A-Za-z0-9_-]*\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
@@ -341,6 +343,11 @@ const sanitizeArtifactForStorage = (artifact: Artifact): Artifact => ({
   ...artifact,
   summary: redactSensitiveText(artifact.summary),
 });
+
+const sanitizeArtifactForCloud = (artifact: Artifact): Artifact => {
+  const sanitized = sanitizeArtifactForStorage(artifact);
+  return sanitized.path ? { ...sanitized, path: undefined } : sanitized;
+};
 
 const sanitizeProjectForStorage = (project: Project): Project => ({
   ...project,
@@ -664,8 +671,21 @@ export const useQarkoStore = create<QarkoState>()(
                 type: "draft",
                 summary: safeOutput.length > 360 ? `${safeOutput.slice(0, 360)}...` : safeOutput,
                 createdAt: new Date().toLocaleString(),
+                path: result.workspacePath,
               }
             : null;
+          const workspaceArtifact: Artifact | null =
+            result.ok && result.workspacePath
+              ? {
+                  id: `artifact-${project.id}-${Date.now()}-workspace`,
+                  projectId: project.id,
+                  title: "Hermes 작업 폴더",
+                  type: "workspace",
+                  summary: "이번 Hermes 실행에서 생성된 파일과 초안이 저장되는 QARKO 작업 폴더입니다.",
+                  path: result.workspacePath,
+                  createdAt: new Date().toLocaleString(),
+                }
+              : null;
           set((current) => {
             if (current.activeRun.id !== runId || current.activeRun.projectId !== project.id) {
               return {
@@ -673,7 +693,9 @@ export const useQarkoStore = create<QarkoState>()(
               };
             }
             return {
-              artifacts: result.ok && artifact ? [artifact, ...current.artifacts] : current.artifacts,
+              artifacts: result.ok
+                ? ([workspaceArtifact, artifact, ...current.artifacts].filter(Boolean) as Artifact[])
+                : current.artifacts,
               activeRun: {
                 ...current.activeRun,
                 status: result.ok ? "completed" : "failed",
@@ -1184,25 +1206,25 @@ export const useQarkoStore = create<QarkoState>()(
             ? "not_configured"
             : state.hermesStatus;
         return {
-        projects: state.projects.map(sanitizeProjectForStorage),
-        selectedProjectId: state.selectedProjectId,
-        view: state.view,
-        approvals: state.approvals,
-        artifacts: state.artifacts.map(sanitizeArtifactForStorage),
-        plugins: state.plugins,
-        feedback: state.feedback.map(sanitizeFeedbackForStorage),
-        reviewNotes: state.reviewNotes.map(sanitizeReviewNoteForStorage),
-        activeRun: sanitizeRunForStorage(state.activeRun),
-        actionNotice: redactSensitiveText(state.actionNotice),
-        syncEndpoint: state.syncEndpoint,
-        syncAccessToken: "",
-        hermesConnection: { ...state.hermesConnection, apiKey: "" },
-        hermesStatus: persistedHermesStatus,
-        hermesMessage: state.hermesMessage,
-        hermesAvailableModels: state.hermesAvailableModels,
-        hermesHealth: state.hermesHealth,
-        hermesToolPreset: state.hermesToolPreset,
-        hermesInstallStatus: state.hermesInstallStatus,
+          projects: state.projects.map(sanitizeProjectForStorage),
+          selectedProjectId: state.selectedProjectId,
+          view: state.view,
+          approvals: state.approvals,
+          artifacts: state.artifacts.map(sanitizeArtifactForStorage),
+          plugins: state.plugins,
+          feedback: state.feedback.map(sanitizeFeedbackForStorage),
+          reviewNotes: state.reviewNotes.map(sanitizeReviewNoteForStorage),
+          activeRun: sanitizeRunForStorage(state.activeRun),
+          actionNotice: redactSensitiveText(state.actionNotice),
+          syncEndpoint: state.syncEndpoint,
+          syncAccessToken: "",
+          hermesConnection: { ...state.hermesConnection, apiKey: "" },
+          hermesStatus: persistedHermesStatus,
+          hermesMessage: state.hermesMessage,
+          hermesAvailableModels: state.hermesAvailableModels,
+          hermesHealth: state.hermesHealth,
+          hermesToolPreset: state.hermesToolPreset,
+          hermesInstallStatus: state.hermesInstallStatus,
         hermesExecutablePath: state.hermesExecutablePath,
         hermesInstallMessage: state.hermesInstallMessage,
         hermesSetupProvider: state.hermesSetupProvider,

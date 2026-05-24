@@ -126,9 +126,10 @@ export interface Artifact {
   id: string;
   projectId: string;
   title: string;
-  type: "plan" | "research" | "draft" | "workflow" | "review";
+  type: "plan" | "research" | "draft" | "workflow" | "review" | "workspace";
   summary: string;
   createdAt: string;
+  path?: string;
 }
 
 export interface Plugin {

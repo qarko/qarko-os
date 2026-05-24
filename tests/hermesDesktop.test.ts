@@ -48,8 +48,8 @@ test("Hermes desktop metadata matches the Rust installer command constants", () 
   const plan = getHermesVerifiedInstallPlan();
   const rustSource = readFileSync("src-tauri/src/lib.rs", "utf8");
 
-  assert.match(rustSource, new RegExp(`HERMES_INSTALL_COMMIT: &str = "${plan.hermesCommit}"`));
-  assert.match(rustSource, new RegExp(`HERMES_INSTALL_SHA256: &str = "${plan.installScriptSha256}"`));
+  assert.match(rustSource, new RegExp(`HERMES_INSTALL_COMMIT: &str =\\s*"${plan.hermesCommit}"`));
+  assert.match(rustSource, new RegExp(`HERMES_INSTALL_SHA256: &str =\\s*"${plan.installScriptSha256}"`));
 });
 
 test("HermesAdapter keeps setup hidden behind health, tools, auth, and workspace execution commands", () => {

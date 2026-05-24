@@ -42,6 +42,7 @@ export interface HermesCommandResult {
   ok: boolean;
   message: string;
   output: string;
+  workspacePath?: string;
 }
 
 export interface HermesHealthReport {
@@ -228,6 +229,7 @@ export const runHermesBusinessStep = async (request: HermesOneShotRequest): Prom
     return {
       ok: true,
       message: "Browser preview generated a beta draft instead of running Hermes.",
+      workspacePath: "browser-preview://workspace",
       output: [
         "## MVP execution draft",
         "",
@@ -240,4 +242,16 @@ export const runHermesBusinessStep = async (request: HermesOneShotRequest): Prom
     };
   }
   return invoke<HermesCommandResult>("run_hermes_oneshot", { request });
+};
+
+export const openQarkoWorkspacePath = async (path: string): Promise<HermesCommandResult> => {
+  if (!hasTauriRuntime()) {
+    return {
+      ok: true,
+      message: "Browser preview cannot open a local folder, but the workspace action is wired.",
+      output: path,
+      workspacePath: path,
+    };
+  }
+  return invoke<HermesCommandResult>("open_qarko_workspace_path", { path });
 };

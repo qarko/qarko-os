@@ -34,6 +34,10 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(rustSource, /run_hermes_oneshot/);
   assert.match(rustSource, /"chat",\s*"-q"/);
   assert.match(rustSource, /"--max-turns",\s*"3"/);
+  assert.match(rustSource, /workspace_path:\s*Option<String>/);
+  assert.match(rustSource, /open_qarko_workspace_path/);
+  assert.match(desktopAdapter, /workspacePath\?: string/);
+  assert.match(desktopAdapter, /openQarkoWorkspacePath/);
   assert.match(storeSource, /await runHermesBusinessStep/);
   assert.match(storeSource, /hasTauriRuntime/);
   assert.match(storeSource, /isBrowserPreview/);
@@ -70,18 +74,24 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(rustSource, /qarko-hermes-prompt/);
   assert.match(rustSource, /qarko_workspace_dir/);
   assert.match(rustSource, /toolsets/);
+  assert.doesNotMatch(rustSource, /Workspace:\s*\{\}/);
   assert.match(storeSource, /toolsetsForHermesPreset/);
   assert.doesNotMatch(storeSource, /toolsetsForAutomationMode/);
   assert.match(rustSource, /current_dir\(&workspace_dir\)/);
   assert.match(desktopAdapter, /HermesHealthReport/);
   assert.match(desktopAdapter, /configureHermesToolPreset/);
-  assert.match(desktopAdapter, /workspacePath\?: string/);
+  assert.match(storeSource, /path:\s*result\.workspacePath/);
+  assert.match(storeSource, /type:\s*"workspace"/);
   assert.match(storeSource, /feedback|reviewNotes/);
   assert.match(storeSource, /isTrustedSyncEndpoint/);
   assert.match(storeSource, /current\.activeRun\.id !== runId/);
   assert.match(storeSource, /redactSensitiveText/);
   assert.match(storeSource, /sanitizeRunForStorage/);
   assert.match(storeSource, /sanitizeArtifactForStorage/);
+  assert.match(storeSource, /const sanitizeArtifactForCloud[\s\S]*path:\s*undefined/);
+  assert.match(storeSource, /makeWorkspaceSnapshot[\s\S]*artifacts:\s*state\.artifacts\.map\(sanitizeArtifactForCloud\)/);
+  assert.match(storeSource, /applyWorkspaceSnapshot[\s\S]*artifacts:\s*snapshot\.artifacts\.map\(sanitizeArtifactForCloud\)/);
+  assert.match(storeSource, /redacted_local_path/);
   assert.match(storeSource, /sanitizeProjectForStorage/);
   assert.match(storeSource, /sanitizeFeedbackForStorage/);
   assert.match(storeSource, /approvalFingerprintForPrompt/);
@@ -141,6 +151,10 @@ test("QARKO beta uses Korean workbench-first Hermes onboarding", () => {
 
   assert.match(executionPanel, /실행 로그/);
   assert.match(executionPanel, /산출물/);
+  assert.match(executionPanel, /작업 폴더 열기/);
+  assert.match(executionPanel, /openQarkoWorkspacePath/);
+  assert.match(executionPanel, /workspaceOpenMessage/);
+  assert.match(executionPanel, /artifact\.projectId === selectedProjectId/);
   assert.match(executionPanel, /승인/);
   assert.match(executionPanel, /resolveApproval/);
   assert.match(executionPanel, /approval\.projectId === selectedProjectId/);
@@ -159,6 +173,7 @@ test("browser preview can run the beta fallback without Tauri", async () => {
 
   assert.equal(result.ok, true);
   assert.equal(typeof result.message, "string");
+  assert.equal(result.workspacePath, "browser-preview://workspace");
   assert.match(result.output, /MVP/);
 });
 

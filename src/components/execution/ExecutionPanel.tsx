@@ -1,5 +1,6 @@
-import { Activity, Bot, CheckCircle2, FileText, MessageSquarePlus, Play, Settings2, ShieldAlert, X } from "lucide-react";
+import { Activity, Bot, CheckCircle2, FileText, FolderOpen, MessageSquarePlus, Play, Settings2, ShieldAlert, X } from "lucide-react";
 import { useState } from "react";
+import { openQarkoWorkspacePath } from "../../adapters/hermesDesktop";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import type { ReviewNote } from "../../types/qarko";
 import { StatusBadge } from "../ui/StatusBadge";
@@ -41,10 +42,13 @@ export function ExecutionPanel() {
   const [activeTab, setActiveTab] = useState<LiveTab | null>(null);
   const [noteTarget, setNoteTarget] = useState("현재 화면");
   const [noteMessage, setNoteMessage] = useState("");
+  const [workspaceOpenMessage, setWorkspaceOpenMessage] = useState("");
+  const [openingWorkspacePath, setOpeningWorkspacePath] = useState<string | null>(null);
 
   const pendingApproval = approvals.find(
     (approval) => approval.projectId === selectedProjectId && approval.status === "pending"
   );
+  const projectArtifacts = artifacts.filter((artifact) => artifact.projectId === selectedProjectId);
   const runtimeTone = hermesStatus === "connected" ? "connected" : hermesStatus === "error" ? "failed" : "not_connected";
   const runtimeLabel = hermesStatus === "connected" ? "Hermes 연결됨" : hermesStatus === "testing" ? "Hermes 확인 중" : hermesStatus === "error" ? "Hermes 오류" : "Hermes 미연결";
 
@@ -54,6 +58,19 @@ export function ExecutionPanel() {
     addReviewNote({ target: noteTarget, message: trimmed });
     setNoteMessage("");
     setActiveTab("feedback");
+  };
+
+  const openWorkspace = async (path: string) => {
+    setOpeningWorkspacePath(path);
+    setWorkspaceOpenMessage("작업 폴더를 여는 중입니다.");
+    try {
+      const result = await openQarkoWorkspacePath(path);
+      setWorkspaceOpenMessage(result.ok ? "작업 폴더를 열었습니다." : result.message);
+    } catch (error) {
+      setWorkspaceOpenMessage(error instanceof Error ? error.message : "작업 폴더를 열지 못했습니다.");
+    } finally {
+      setOpeningWorkspacePath(null);
+    }
   };
 
   return (
@@ -120,10 +137,30 @@ export function ExecutionPanel() {
                   <p className="mb-2 text-xs font-semibold uppercase tracking-normal text-moss">Output preview</p>
                   <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700">{activeRun.outputPreview || "Hermes 실행 결과가 여기에 표시됩니다."}</p>
                 </div>
-                {artifacts.slice(0, 5).map((artifact) => (
+                {workspaceOpenMessage ? (
+                  <p className="rounded-md border border-line bg-panel p-3 text-xs leading-5 text-stone-700">
+                    {workspaceOpenMessage}
+                  </p>
+                ) : null}
+                {projectArtifacts.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-line bg-white p-4 text-xs leading-5 text-stone-600">
+                    이 프로젝트에서 생성된 산출물이 아직 없습니다. Hermes 실행 후 작업 폴더와 초안이 여기에 쌓입니다.
+                  </p>
+                ) : null}
+                {projectArtifacts.slice(0, 5).map((artifact) => (
                   <article key={artifact.id} className="rounded-md border border-line bg-white p-3 shadow-sm">
                     <p className="text-sm font-semibold text-ink">{artifact.title}</p>
                     <p className="mt-1 text-xs leading-5 text-stone-600">{artifact.summary}</p>
+                    {artifact.path ? (
+                      <button
+                        onClick={() => openWorkspace(artifact.path as string)}
+                        disabled={openingWorkspacePath === artifact.path}
+                        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-xs font-semibold text-ink hover:bg-white disabled:cursor-wait disabled:opacity-70"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                        {openingWorkspacePath === artifact.path ? "여는 중" : "작업 폴더 열기"}
+                      </button>
+                    ) : null}
                     <p className="mt-2 text-xs text-moss">{artifact.createdAt}</p>
                   </article>
                 ))}
