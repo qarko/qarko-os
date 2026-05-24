@@ -110,6 +110,7 @@ export interface Run {
   logs: LogEntry[];
   outputPreview: string;
   stepCount: number;
+  sessionTranscript?: string;
 }
 
 export interface Approval {
@@ -216,6 +217,7 @@ export interface WorkspaceSnapshot {
   feedback: FeedbackEntry[];
   reviewNotes?: ReviewNote[];
   activeRun: Run;
+  projectRuns?: Record<string, Run>;
   actionNotice: string;
   updatedAt?: string;
 }

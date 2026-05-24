@@ -15,7 +15,7 @@ export function NewProjectPanel() {
 
   const previewName = useMemo(() => {
     const trimmed = idea.trim();
-    if (!trimmed) return "새 사업 프로젝트";
+    if (!trimmed) return "새 Hermes 프로젝트";
     return trimmed.length > 34 ? `${trimmed.slice(0, 34)}...` : trimmed;
   }, [idea]);
 
@@ -23,20 +23,20 @@ export function NewProjectPanel() {
     <div className="mx-auto max-w-6xl p-5 lg:p-8">
       <div className="mb-6">
         <p className="text-sm font-semibold uppercase tracking-normal text-moss">New project</p>
-        <h1 className="mt-1 text-3xl font-bold text-ink">사업 아이디어를 운영 프로젝트로 만들기</h1>
+        <h1 className="mt-1 text-3xl font-bold text-ink">Hermes 작업 프로젝트 만들기</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-          아이디어를 입력하고 QARKO OS가 어디까지 자동화할지 먼저 정하세요.
+          하고 싶은 작업, 분석할 폴더, 만들고 싶은 결과를 입력하고 QARKO OS가 어디까지 자동화할지 먼저 정하세요.
         </p>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <section className="rounded-md border border-line bg-white p-5 shadow-sm">
-          <SectionHeader title="사업 아이디어" eyebrow="Idea" />
+          <SectionHeader title="작업 목표" eyebrow="Prompt" />
           <textarea
             value={idea}
             onChange={(event) => setIdea(event.target.value)}
             className="min-h-40 w-full resize-none rounded-md border border-line bg-panel p-4 text-sm leading-6 outline-none focus:border-signal"
-            placeholder="예: 동네 식당을 대상으로 숏폼 마케팅 대행 사업을 시작하고 싶어."
+            placeholder="예: 이 폴더 구조를 분석하고 실행 가능한 다음 작업을 제안해줘."
           />
           <div className="mt-4 rounded-md bg-panel p-4">
             <p className="text-xs font-semibold uppercase tracking-normal text-moss">프로젝트 미리보기</p>

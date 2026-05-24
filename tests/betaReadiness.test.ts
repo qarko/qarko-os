@@ -11,6 +11,7 @@ import {
   runHermesBusinessStep,
 } from "../src/adapters/hermesDesktop";
 import { isTrustedSyncEndpoint } from "../src/adapters/workspaceSync";
+import { redactSensitiveText } from "../src/utils/redaction";
 
 test("beta workspace starts without seeded sample projects", () => {
   const storeSource = readFileSync("src/store/useQarkoStore.ts", "utf8");
@@ -29,6 +30,8 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   const desktopAdapter = readFileSync("src/adapters/hermesDesktop.ts", "utf8");
   const rustSource = readFileSync("src-tauri/src/lib.rs", "utf8");
   const storeSource = readFileSync("src/store/useQarkoStore.ts", "utf8");
+  const typeSource = readFileSync("src/types/qarko.ts", "utf8");
+  const redactionSource = readFileSync("src/utils/redaction.ts", "utf8");
 
   assert.match(desktopAdapter, /runHermesBusinessStep/);
   assert.match(rustSource, /run_hermes_oneshot/);
@@ -45,7 +48,7 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(storeSource, /persistedHermesStatus/);
   assert.match(storeSource, /!isBrowserPreview\s*&&\s*provider\.authType === "api-key"\s*&&\s*!state\.hermesConnection\.apiKey\.trim\(\)/);
   assert.match(storeSource, /state\.hermesStatus === "connected"\s*&&\s*provider\.authType === "api-key"/);
-  assert.match(storeSource, /activeRun\.status === "running"/);
+  assert.match(storeSource, /projectRun\.status === "running"/);
   assert.match(storeSource, /result\.ok\s*\?\s*"completed"\s*:\s*"failed"/);
   assert.match(storeSource, /artifacts:\s*result\.ok/);
   assert.match(desktopAdapter, /apiKey:\s*string/);
@@ -84,27 +87,58 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(storeSource, /type:\s*"workspace"/);
   assert.match(storeSource, /feedback|reviewNotes/);
   assert.match(storeSource, /isTrustedSyncEndpoint/);
-  assert.match(storeSource, /current\.activeRun\.id !== runId/);
+  assert.match(storeSource, /currentRun\.id !== runId/);
   assert.match(storeSource, /redactSensitiveText/);
   assert.match(storeSource, /sanitizeRunForStorage/);
   assert.match(storeSource, /sanitizeArtifactForStorage/);
   assert.match(storeSource, /const sanitizeArtifactForCloud[\s\S]*path:\s*undefined/);
   assert.match(storeSource, /makeWorkspaceSnapshot[\s\S]*artifacts:\s*state\.artifacts\.map\(sanitizeArtifactForCloud\)/);
   assert.match(storeSource, /applyWorkspaceSnapshot[\s\S]*artifacts:\s*snapshot\.artifacts\.map\(sanitizeArtifactForCloud\)/);
-  assert.match(storeSource, /redacted_local_path/);
+  assert.match(storeSource, /clearPendingApprovalsAfterCloudLoad/);
+  assert.match(storeSource, /status === "pending"[\s\S]*status:\s*"cancelled"/);
+  assert.match(storeSource, /applyWorkspaceSnapshot[\s\S]*projectPendingPrompts:\s*\{\}/);
+  assert.match(storeSource, /applyWorkspaceSnapshot[\s\S]*pendingPrompt:\s*""/);
+  assert.match(storeSource, /saveWorkspaceSnapshot[\s\S]*set\(\(current\) =>/);
+  assert.match(storeSource, /approvals:\s*current\.approvals/);
+  assert.match(storeSource, /projectPendingPrompts:\s*current\.projectPendingPrompts/);
+  assert.match(storeSource, /pendingPrompt:\s*restoredSnapshot\.selectedProjectId/);
+  assert.match(redactionSource, /redacted_local_path/);
+  assert.match(redactionSource, /redacted_discord_webhook/);
+  assert.match(redactionSource, /Bearer \[redacted\]/);
   assert.match(storeSource, /sanitizeProjectForStorage/);
   assert.match(storeSource, /sanitizeFeedbackForStorage/);
   assert.match(storeSource, /approvalFingerprintForPrompt/);
   assert.match(storeSource, /activeRun:\s*sanitizeRunForStorage\(state\.activeRun\)/);
   assert.match(storeSource, /artifacts:\s*state\.artifacts\.map\(sanitizeArtifactForStorage\)/);
   assert.match(storeSource, /projects:\s*state\.projects\.map\(sanitizeProjectForStorage\)/);
+  assert.match(typeSource, /sessionTranscript\?:\s*string/);
+  assert.match(storeSource, /const appendSessionTranscript/);
+  assert.match(storeSource, /sessionTranscript:\s*appendSessionTranscript/);
+  assert.match(storeSource, /const buildHermesRunContext/);
+  assert.match(storeSource, /run\.sessionTranscript/);
+  assert.match(storeSource, /Project session transcript/);
+  assert.doesNotMatch(storeSource, /run\.logs\s*\.\s*slice\(-8\)/);
   assert.match(storeSource, /needsManualApprovalForPrompt\(userPrompt\)/);
   assert.doesNotMatch(storeSource, /project\.automationMode !== "automation"[\s\S]{0,120}needsManualApprovalForPrompt\(userPrompt\)/);
   assert.match(storeSource, /status:\s*"pending"/);
-  assert.match(storeSource, /pendingPrompt:\s*decision === "approved" \? state\.pendingPrompt : ""/);
+  assert.match(storeSource, /status:\s*"needs_approval"/);
+  assert.match(storeSource, /projectPendingPrompts:\s*nextProjectPendingPrompts/);
+  assert.match(storeSource, /nextProjectPendingPrompts\[approval\.projectId\]/);
+  assert.doesNotMatch(storeSource, /pendingPrompt:\s*decision === "approved" \? state\.pendingPrompt : ""/);
   assert.match(storeSource, /redactSensitiveText\(userPrompt\)/);
   assert.match(storeSource, /safeFeedback = state\.feedback\.map\(sanitizeFeedbackForStorage\)/);
   assert.match(storeSource, /sendFeedbackEntries\(state\.syncEndpoint, safeFeedback\)/);
+});
+
+test("redaction removes Discord webhooks and bearer tokens before persistence", () => {
+  const redacted = redactSensitiveText(
+    'Send https://discord.com/api/webhooks/1234567890/abcdef.SECRET and Authorization: Bearer abcdefghijklmnopqrstuvwxyz1234567890'
+  );
+
+  assert.match(redacted, /\[redacted_discord_webhook\]/);
+  assert.match(redacted, /Bearer \[redacted\]/);
+  assert.doesNotMatch(redacted, /discord\.com\/api\/webhooks/);
+  assert.doesNotMatch(redacted, /abcdefghijklmnopqrstuvwxyz1234567890/);
 });
 
 test("QARKO beta uses Korean workbench-first Hermes onboarding", () => {
@@ -133,15 +167,40 @@ test("QARKO beta uses Korean workbench-first Hermes onboarding", () => {
   assert.match(mockDataSource, /자동 실행 모드/);
 
   assert.match(dashboardSource, /Hermes Workbench/);
-  assert.match(dashboardSource, /Codex 앱처럼/);
-  assert.match(dashboardSource, /프로젝트 안에서 Hermes와 대화/);
+  assert.match(dashboardSource, /한 세션 안에서 Hermes와 계속 대화/);
   assert.match(dashboardSource, /안전 승인 모드/);
   assert.match(dashboardSource, /새 프로젝트/);
   assert.match(dashboardSource, /Hermes 실행/);
   assert.match(dashboardSource, /textarea/);
+  assert.match(dashboardSource, /Hermes Workbench/);
+  assert.doesNotMatch(dashboardSource, /MVP Workbench/);
+  assert.doesNotMatch(dashboardSource, /새 MVP 프로젝트/);
+  assert.match(dashboardSource, /chat-viewport/);
+  assert.match(dashboardSource, /currentSessionLogs/);
+  assert.doesNotMatch(dashboardSource, /Hermes 결과/);
+  assert.match(dashboardSource, /const selectedMode = selectedProject\?\.automationMode \?\? mode/);
+  assert.match(dashboardSource, /runWorkbenchTask\(trimmed,\s*selectedMode\)/);
+  assert.match(dashboardSource, /selectedMode === item/);
   assert.match(dashboardSource, /runWorkbenchTask/);
   assert.match(storeSource, /runWorkbenchTask/);
   assert.match(storeSource, /pendingPrompt/);
+  assert.match(storeSource, /projectRuns:\s*Record<string,\s*Run>/);
+  assert.match(storeSource, /projectPendingPrompts:\s*Record<string,\s*string>/);
+  assert.match(typeSource, /projectRuns\?:\s*Record<string,\s*Run>/);
+  assert.match(storeSource, /projectRuns:\s*\{\}/);
+  assert.match(storeSource, /projectPendingPrompts:\s*\{\}/);
+  assert.match(storeSource, /state\.projectRuns\[projectId\]\s*\?\?\s*buildRunForProject\(project\)/);
+  assert.match(storeSource, /pendingPrompt:\s*project \? state\.projectPendingPrompts\[projectId\]\s*\?\?\s*""/);
+  assert.match(storeSource, /\[project\.id\]:\s*initialRun/);
+  assert.match(storeSource, /projectPendingPrompts:\s*\{\s*\.\.\.current\.projectPendingPrompts,\s*\[project\.id\]:\s*userPrompt/s);
+  assert.match(storeSource, /delete nextProjectPendingPrompts\[project\.id\]/);
+  assert.match(storeSource, /sanitizePromptMapForStorage\(state\.projectPendingPrompts\)/);
+  assert.match(storeSource, /projectRuns:\s*\{\s*\.\.\.current\.projectRuns,\s*\[project\.id\]:\s*runningRun/s);
+  assert.match(storeSource, /status:\s*"running"/);
+  assert.match(storeSource, /current\.selectedProjectId === project\.id \? completedRun : current\.activeRun/);
+  assert.match(storeSource, /status:\s*result\.ok \? "completed" : "failed"/);
+  assert.match(storeSource, /actionNotice:\s*current\.selectedProjectId === project\.id[\s\S]*current\.actionNotice/);
+  assert.match(storeSource, /status:\s*"failed"/);
   assert.match(storeSource, /buildHermesChatPrompt/);
   assert.match(storeSource, /roleName:\s*"User"/);
   assert.match(storeSource, /Hermes 세션/);
@@ -165,7 +224,7 @@ test("QARKO beta uses Korean workbench-first Hermes onboarding", () => {
 
 test("browser preview can run the beta fallback without Tauri", async () => {
   const result = await runHermesBusinessStep({
-    prompt: "?뚯뒪???꾨줈?앺듃",
+    prompt: "Hermes로 현재 폴더를 분석하고 다음 작업을 제안해줘.",
     modelName: "preview-model",
     provider: "openai-codex",
     apiKey: "",
@@ -174,7 +233,7 @@ test("browser preview can run the beta fallback without Tauri", async () => {
   assert.equal(result.ok, true);
   assert.equal(typeof result.message, "string");
   assert.equal(result.workspacePath, "browser-preview://workspace");
-  assert.match(result.output, /MVP/);
+  assert.match(result.output, /execution draft|Hermes|작업/i);
 });
 
 test("browser preview can complete the Hermes setup UX without Tauri", async () => {

@@ -25,7 +25,7 @@ export function Sidebar() {
             <p className="text-xs text-moss">{workspace.name}</p>
           </div>
         </div>
-        <p className="mt-4 text-sm leading-5 text-stone-600">Hermes를 초보자도 쓸 수 있게 만든 1인 AI 회사 작업실</p>
+        <p className="mt-4 text-sm leading-5 text-stone-600">Hermes CLI를 쉽게 쓰는 작업실</p>
       </div>
 
       <nav className="space-y-1 border-b border-line p-3">
@@ -68,7 +68,7 @@ export function Sidebar() {
               key={project.id}
               onClick={() => selectProject(project.id)}
               className={`w-full rounded-md border p-3 text-left transition ${
-                selectedProjectId === project.id && view === "project"
+                selectedProjectId === project.id
                   ? "border-signal bg-white shadow-sm"
                   : "border-line bg-white/60 hover:bg-white"
               }`}

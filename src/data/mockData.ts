@@ -13,7 +13,7 @@ import type {
 export const workspace: Workspace = {
   id: "workspace-qarko",
   name: "QARKO HQ",
-  tagline: "1인 AI 회사를 운영하는 실시간 작업 공간",
+  tagline: "Hermes CLI를 쉽게 쓰는 작업 공간",
 };
 
 export const defaultRules: ApprovalRule[] = [
@@ -61,7 +61,7 @@ export const hermesStrengths = [
   },
   {
     title: "스킬과 메모리",
-    description: "반복되는 사업 작업은 스킬처럼 정리하고, 프로젝트 맥락은 다음 작업에서 다시 활용할 수 있게 설계합니다.",
+    description: "반복되는 작업은 스킬처럼 정리하고, 프로젝트 맥락은 다음 작업에서 다시 활용할 수 있게 설계합니다.",
   },
   {
     title: "에이전트 실행",
@@ -141,14 +141,14 @@ const baseRoles: AgentRole[] = [
 export const projects: Project[] = [
   {
     id: "project-launchpad",
-    name: "AI Business Launchpad",
-    idea: "새로운 사업 아이디어를 7일 안에 검증 가능한 프로젝트로 바꾸기",
+    name: "Hermes Workbench Project",
+    idea: "Hermes로 처리할 작업을 프로젝트 세션으로 만들기",
     status: "running",
     automationMode: "assisted",
     goal: {
       id: "goal-launchpad",
-      title: "첫 사업 가설과 실행 계획 확정",
-      metric: "7일 안에 검증 실험 3개 준비",
+      title: "첫 실행 목표와 작업 계획 확정",
+      metric: "오늘 실행할 작업 3개 준비",
       status: "running",
     },
     workflow: {
@@ -165,8 +165,8 @@ export const projects: Project[] = [
     tasks: [
       {
         id: "task-1",
-        title: "사업 아이디어를 한 문장으로 정리",
-        description: "고객, 문제, 제안 가치를 기준으로 압축",
+        title: "작업 목표를 한 문장으로 정리",
+        description: "목표, 입력 자료, 원하는 결과를 기준으로 압축",
         status: "completed",
         roleId: "chief",
         approvalRequired: false,
@@ -217,7 +217,7 @@ export const projects: Project[] = [
       {
         id: "task-threads-1",
         title: "베타 테스터 조건 정리",
-        description: "비개발자, 1인 사업자, AI 도구 사용자 중심으로 모집 조건 정리",
+        description: "비개발자, AI 도구 사용자, Windows 사용자 중심으로 모집 조건 정리",
         status: "planned",
         roleId: "chief",
         approvalRequired: false,
@@ -286,12 +286,14 @@ export const activeRun: Run = {
   status: "running",
   stepCount: 3,
   outputPreview: "검증 메시지는 문제 인식, 빠른 제안, 승인 요청 순서로 정리하는 것이 좋습니다.",
+  sessionTranscript:
+    "Chief of Staff [completed]: 작업 목표를 실행 가능한 단위로 정리했습니다.\n\nResearcher [running]: 참고 자료와 사용자 막힘 패턴을 정리 중입니다.",
   logs: [
     {
       id: "log-1",
       timestamp: "13:04",
       roleName: "Chief of Staff",
-      message: "사업 목표를 7일 검증 단위로 압축했습니다.",
+      message: "작업 목표를 실행 가능한 단위로 압축했습니다.",
       status: "completed",
     },
     {

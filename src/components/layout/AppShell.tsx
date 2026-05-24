@@ -15,7 +15,7 @@ export function AppShell({ children }: AppShellProps) {
         <div className="hidden min-h-0 lg:block">
           <Sidebar />
         </div>
-        <main className="min-h-0 overflow-y-auto bg-[#f8f8f5] pr-14 thin-scrollbar lg:pr-16">
+        <main className="min-h-0 overflow-hidden bg-[#f8f8f5] pr-14 lg:pr-16">
           {children}
         </main>
       </div>
