@@ -2,7 +2,7 @@ import { Activity, Bot, CheckCircle2, FileText, FolderOpen, MessageSquarePlus, P
 import { useState } from "react";
 import { openQarkoWorkspacePath } from "../../adapters/hermesDesktop";
 import { useQarkoStore } from "../../store/useQarkoStore";
-import type { ReviewNote } from "../../types/qarko";
+import type { ExecutionPhase, ReviewNote, Run } from "../../types/qarko";
 import { StatusBadge } from "../ui/StatusBadge";
 
 type LiveTab = "log" | "artifacts" | "approval" | "feedback" | "hermes";
@@ -19,6 +19,51 @@ const noteStatusLabel: Record<ReviewNote["status"], string> = {
   open: "대기",
   in_progress: "수정 중",
   done: "완료",
+};
+
+const executionPhaseLabel: Record<ExecutionPhase, string> = {
+  ready: "준비됨",
+  queued: "실행 대기",
+  starting: "Hermes 시작 중",
+  resuming_session: "이전 세션 이어가는 중",
+  running: "실행 중",
+  receiving_output: "응답 수신 중",
+  waiting_for_approval: "승인 대기",
+  completed: "완료",
+  failed: "오류",
+  cancelled: "취소됨",
+};
+
+const formatElapsed = (elapsedMs: number) => {
+  if (elapsedMs < 1000) return `${elapsedMs}ms`;
+  const totalSeconds = Math.floor(elapsedMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}시간 ${minutes}분`;
+  if (minutes > 0) return `${minutes}분 ${seconds}초`;
+  return `${seconds}초`;
+};
+
+const getRunTimeLabel = (run: Run) => {
+  if (typeof run.elapsedMs === "number") return `경과 ${formatElapsed(run.elapsedMs)}`;
+  if (run.startedAt) {
+    const startedAtMs = new Date(run.startedAt).getTime();
+    if (Number.isFinite(startedAtMs)) return `진행 중 (${formatElapsed(Math.max(Date.now() - startedAtMs, 0))})`;
+  }
+  if (run.activePhase === "ready" || run.activePhase === "queued") return "대기 중";
+  if (
+    run.activePhase === "starting" ||
+    run.activePhase === "resuming_session" ||
+    run.activePhase === "running" ||
+    run.activePhase === "receiving_output"
+  ) {
+    return "진행 중";
+  }
+  if (run.activePhase === "waiting_for_approval") return "승인 대기";
+  if (run.activePhase === "completed") return "완료";
+  if (run.activePhase === "failed") return "오류";
+  return "취소됨";
 };
 
 export function ExecutionPanel() {
@@ -88,6 +133,14 @@ export function ExecutionPanel() {
               </button>
             </div>
             <div className="grid gap-2 rounded-md border border-line bg-white p-3 text-xs text-stone-600">
+              <div className="flex items-center justify-between gap-2">
+                <span>Phase</span>
+                <span className="max-w-44 truncate font-medium text-ink">{executionPhaseLabel[activeRun.activePhase]}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span>Time</span>
+                <span className="max-w-44 truncate font-medium text-ink">{getRunTimeLabel(activeRun)}</span>
+              </div>
               <div className="flex items-center justify-between gap-2">
                 <span>Runtime</span>
                 <StatusBadge tone={runtimeTone} label={runtimeLabel} />

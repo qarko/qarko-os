@@ -64,6 +64,24 @@ test("project runs track long-running Hermes status", () => {
   assert.match(storeWithoutLineComments, /const elapsedMs = elapsedMsSince\(currentRun\.startedAt\)/);
 });
 
+test("execution UI shows Korean phase labels and elapsed timing in workbench and side panel", () => {
+  const projectView = readFileSync("src/components/projects/ProjectView.tsx", "utf8");
+  const executionPanel = readFileSync("src/components/execution/ExecutionPanel.tsx", "utf8");
+
+  assert.match(projectView, /const executionPhaseLabel: Record<ExecutionPhase, string>/);
+  assert.match(executionPanel, /const executionPhaseLabel: Record<ExecutionPhase, string>/);
+  assert.match(projectView, /resuming_session:\s*"이전 세션 이어가는 중"/);
+  assert.match(executionPanel, /waiting_for_approval:\s*"승인 대기"/);
+  assert.match(projectView, /runForProject\.activePhase/);
+  assert.match(executionPanel, /activeRun\.activePhase/);
+  assert.match(projectView, /run\.activePhase === "ready" \|\| run\.activePhase === "queued".*대기 중/s);
+  assert.match(executionPanel, /run\.activePhase === "ready" \|\| run\.activePhase === "queued".*대기 중/s);
+  assert.match(projectView, /run\.elapsedMs|runForProject\.elapsedMs/);
+  assert.match(executionPanel, /run\.elapsedMs|activeRun\.elapsedMs/);
+  assert.match(projectView, /run\.startedAt|runForProject\.startedAt/);
+  assert.match(executionPanel, /run\.startedAt|activeRun\.startedAt/);
+});
+
 test("runs keep chat messages separate from execution logs", () => {
   const types = readFileSync("src/types/qarko.ts", "utf8");
   const store = readFileSync("src/store/useQarkoStore.ts", "utf8");
