@@ -260,7 +260,8 @@ fn redact_sensitive_output(value: String) -> String {
     let clean_value = strip_ansi_codes(&value);
     for line in clean_value.lines() {
         let lower = line.to_lowercase();
-        if lower.contains("api_key")
+        if is_hermes_session_id_line(line)
+            || lower.contains("api_key")
             || lower.contains("apikey")
             || lower.contains("token")
             || lower.contains("bearer ")
@@ -273,6 +274,11 @@ fn redact_sensitive_output(value: String) -> String {
         }
     }
     redacted_lines.join("\n")
+}
+
+fn is_hermes_session_id_line(value: &str) -> bool {
+    let line = value.trim();
+    line.to_lowercase().starts_with("session_id:") || line.starts_with("Session ID:")
 }
 
 fn strip_ansi_codes(value: &str) -> String {
@@ -297,9 +303,12 @@ fn extract_hermes_session_id(value: &str) -> Option<String> {
     let clean_value = strip_ansi_codes(value);
     for line in clean_value.lines() {
         let line = line.trim();
-        let lower = line.to_lowercase();
-        let raw_id = if let Some(rest) = lower.strip_prefix("session_id:") {
-            let offset = line.len() - rest.len();
+        let raw_id = if let Some(rest) = line
+            .to_lowercase()
+            .strip_prefix("session_id:")
+            .map(|rest| rest.len())
+        {
+            let offset = line.len() - rest;
             line[offset..].trim()
         } else if let Some(rest) = line.strip_prefix("Session ID:") {
             rest.trim()
@@ -1233,4 +1242,32 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running QARKO OS");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_result_extracts_session_id_without_returning_it_in_output() {
+        let result = command_result_from_output(
+            true,
+            b"Hermes completed work\n",
+            b"Session ID: abc_123-session\nstatus: ok\n",
+        );
+
+        assert_eq!(result.session_id.as_deref(), Some("abc_123-session"));
+        assert!(!result.output.contains("abc_123-session"));
+        assert!(result.output.contains("[redacted sensitive output]"));
+        assert!(result.output.contains("Hermes completed work"));
+    }
+
+    #[test]
+    fn redact_sensitive_output_removes_lowercase_session_id_lines() {
+        let output = redact_sensitive_output("session_id: secret-session\nnormal line".to_string());
+
+        assert!(!output.contains("secret-session"));
+        assert!(output.contains("[redacted sensitive output]"));
+        assert!(output.contains("normal line"));
+    }
 }

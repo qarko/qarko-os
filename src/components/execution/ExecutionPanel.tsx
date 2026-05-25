@@ -1,23 +1,40 @@
-import { Activity, Bot, CheckCircle2, FileText, FolderOpen, MessageSquarePlus, Play, Settings2, ShieldAlert, X } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  CheckCircle2,
+  FileText,
+  FolderOpen,
+  MessageSquarePlus,
+  Play,
+  Settings2,
+  ShieldAlert,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import { openQarkoWorkspacePath } from "../../adapters/hermesDesktop";
 import { useQarkoStore } from "../../store/useQarkoStore";
 import type { ExecutionPhase, ReviewNote, Run } from "../../types/qarko";
 import { StatusBadge } from "../ui/StatusBadge";
 
-type LiveTab = "log" | "artifacts" | "approval" | "feedback" | "hermes";
+type LiveTab = "status" | "log" | "artifacts" | "approval" | "notes" | "hermes";
 
-const tabs: Array<{ id: LiveTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: "log", label: "실행 로그", icon: Activity },
-  { id: "artifacts", label: "산출물", icon: FileText },
+const tabs: Array<{
+  id: LiveTab;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { id: "status", label: "상태", icon: Activity },
+  { id: "log", label: "로그", icon: FileText },
+  { id: "artifacts", label: "결과", icon: FolderOpen },
   { id: "approval", label: "승인", icon: ShieldAlert },
-  { id: "feedback", label: "피드백", icon: MessageSquarePlus },
-  { id: "hermes", label: "Hermes", icon: Settings2 },
+  { id: "notes", label: "주석", icon: MessageSquarePlus },
+  { id: "hermes", label: "Hermes", icon: SlidersHorizontal },
 ];
 
 const noteStatusLabel: Record<ReviewNote["status"], string> = {
   open: "대기",
-  in_progress: "수정 중",
+  in_progress: "처리 중",
   done: "완료",
 };
 
@@ -90,19 +107,28 @@ export function ExecutionPanel() {
   const [workspaceOpenMessage, setWorkspaceOpenMessage] = useState("");
   const [openingWorkspacePath, setOpeningWorkspacePath] = useState<string | null>(null);
 
+  const activeTabMeta = tabs.find((tab) => tab.id === activeTab);
   const pendingApproval = approvals.find(
     (approval) => approval.projectId === selectedProjectId && approval.status === "pending"
   );
   const projectArtifacts = artifacts.filter((artifact) => artifact.projectId === selectedProjectId);
+  const recentLogs = activeRun.logs.slice(-5).reverse();
   const runtimeTone = hermesStatus === "connected" ? "connected" : hermesStatus === "error" ? "failed" : "not_connected";
-  const runtimeLabel = hermesStatus === "connected" ? "Hermes 연결됨" : hermesStatus === "testing" ? "Hermes 확인 중" : hermesStatus === "error" ? "Hermes 오류" : "Hermes 미연결";
+  const runtimeLabel =
+    hermesStatus === "connected"
+      ? "Hermes 연결됨"
+      : hermesStatus === "testing"
+        ? "Hermes 확인 중"
+        : hermesStatus === "error"
+          ? "Hermes 오류"
+          : "Hermes 미연결";
 
   const submitNote = () => {
     const trimmed = noteMessage.trim();
     if (!trimmed) return;
     addReviewNote({ target: noteTarget, message: trimmed });
     setNoteMessage("");
-    setActiveTab("feedback");
+    setActiveTab("notes");
   };
 
   const openWorkspace = async (path: string) => {
@@ -118,86 +144,112 @@ export function ExecutionPanel() {
     }
   };
 
+  const summaryRows = [
+    ["Phase", executionPhaseLabel[activeRun.activePhase]],
+    ["Time", getRunTimeLabel(activeRun)],
+    ["Runtime", runtimeLabel],
+    ["Model", hermesConnection.modelName || activeRun.modelName],
+  ];
+
   return (
     <aside className="fixed bottom-0 right-0 top-0 z-40 flex pointer-events-none">
       {activeTab ? (
-        <section className="pointer-events-auto flex w-[390px] max-w-[calc(100vw-56px)] flex-col border-l border-line bg-[#fbfbf8] shadow-xl">
+        <section className="pointer-events-auto flex w-[380px] max-w-[calc(100vw-56px)] flex-col border-l border-line bg-[#fbfbf8] shadow-xl">
           <div className="border-b border-line p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-normal text-moss">실시간 패널</p>
-                <h2 className="text-base font-bold text-ink">{activeRun.title}</h2>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-normal text-moss">Inspector</p>
+                <h2 className="truncate text-base font-bold text-ink">{activeTabMeta?.label ?? "상태"}</h2>
               </div>
               <button onClick={() => setActiveTab(null)} className="rounded-md p-2 text-stone-500 hover:bg-panel hover:text-ink" aria-label="패널 닫기">
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="grid gap-2 rounded-md border border-line bg-white p-3 text-xs text-stone-600">
-              <div className="flex items-center justify-between gap-2">
-                <span>Phase</span>
-                <span className="max-w-44 truncate font-medium text-ink">{executionPhaseLabel[activeRun.activePhase]}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>Time</span>
-                <span className="max-w-44 truncate font-medium text-ink">{getRunTimeLabel(activeRun)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>Runtime</span>
-                <StatusBadge tone={runtimeTone} label={runtimeLabel} />
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>Provider</span>
-                <span className="font-medium text-ink">{hermesSetupProvider}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>Model</span>
-                <span className="max-w-44 truncate font-medium text-ink">{hermesConnection.modelName || activeRun.modelName}</span>
-              </div>
+              {summaryRows.map(([label, value]) => (
+                <div key={label} className="flex min-w-0 items-center justify-between gap-3">
+                  <span className="shrink-0">{label}</span>
+                  {label === "Runtime" ? (
+                    <StatusBadge tone={runtimeTone} label={value} />
+                  ) : (
+                    <span className="min-w-0 truncate font-medium text-ink">{value}</span>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-4 thin-scrollbar">
-            {activeTab === "log" ? (
+            {activeTab === "status" ? (
               <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Bot className="h-4 w-4 text-signal" />
-                  <h3 className="text-sm font-semibold text-ink">실행 로그</h3>
+                <div className="rounded-md border border-line bg-white p-4 shadow-sm">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-signal" />
+                    <h3 className="text-sm font-semibold text-ink">현재 실행 상태</h3>
+                  </div>
+                  <p className="text-sm leading-6 text-stone-700">{executionPhaseLabel[activeRun.activePhase]}</p>
+                  <p className="mt-1 text-xs text-moss">{getRunTimeLabel(activeRun)}</p>
                 </div>
                 <div className="space-y-2">
-                  {activeRun.logs.length > 0 ? (
-                    activeRun.logs.map((log) => (
-                      <div key={log.id} className="rounded-md border border-line bg-white p-3 shadow-sm">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <span className="truncate text-xs font-semibold text-ink">{log.roleName}</span>
-                          <span className="text-xs text-moss">{log.timestamp}</span>
+                  <p className="text-xs font-semibold uppercase tracking-normal text-moss">최근 로그</p>
+                  {recentLogs.length > 0 ? (
+                    recentLogs.map((log) => (
+                      <div key={log.id} className="rounded-md border border-line bg-white p-3 text-xs shadow-sm">
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <span className="truncate font-semibold text-ink">{log.roleName}</span>
+                          <span className="shrink-0 text-moss">{log.timestamp}</span>
                         </div>
-                        <p className="text-xs leading-5 text-stone-600">{log.message}</p>
+                        <p className="line-clamp-3 leading-5 text-stone-600">{log.message}</p>
                       </div>
                     ))
                   ) : (
                     <p className="rounded-md border border-dashed border-line bg-white p-4 text-xs leading-5 text-stone-600">
-                      아직 실행 로그가 없습니다. 작업실에서 Hermes 실행을 누르면 여기에 진행 상황이 표시됩니다.
+                      아직 실행 로그가 없습니다.
                     </p>
                   )}
                 </div>
               </div>
             ) : null}
 
+            {activeTab === "log" ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-4 w-4 text-signal" />
+                  <h3 className="text-sm font-semibold text-ink">실행 로그</h3>
+                </div>
+                {activeRun.logs.length > 0 ? (
+                  activeRun.logs.map((log) => (
+                    <div key={log.id} className="rounded-md border border-line bg-white p-3 shadow-sm">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-semibold text-ink">{log.roleName}</span>
+                        <span className="shrink-0 text-xs text-moss">{log.timestamp}</span>
+                      </div>
+                      <p className="text-xs leading-5 text-stone-600">{log.message}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="rounded-md border border-dashed border-line bg-white p-4 text-xs leading-5 text-stone-600">
+                    Hermes 실행을 시작하면 이곳에 진행 로그가 쌓입니다.
+                  </p>
+                )}
+              </div>
+            ) : null}
+
             {activeTab === "artifacts" ? (
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-ink">산출물</h3>
+                <h3 className="text-sm font-semibold text-ink">결과와 작업 폴더</h3>
                 <div className="rounded-md border border-line bg-white p-4 shadow-sm">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-normal text-moss">Output preview</p>
-                  <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700">{activeRun.outputPreview || "Hermes 실행 결과가 여기에 표시됩니다."}</p>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700">
+                    {activeRun.outputPreview || "Hermes 실행 결과가 이곳에 표시됩니다."}
+                  </p>
                 </div>
                 {workspaceOpenMessage ? (
-                  <p className="rounded-md border border-line bg-panel p-3 text-xs leading-5 text-stone-700">
-                    {workspaceOpenMessage}
-                  </p>
+                  <p className="rounded-md border border-line bg-panel p-3 text-xs leading-5 text-stone-700">{workspaceOpenMessage}</p>
                 ) : null}
                 {projectArtifacts.length === 0 ? (
                   <p className="rounded-md border border-dashed border-line bg-white p-4 text-xs leading-5 text-stone-600">
-                    이 프로젝트에서 생성된 산출물이 아직 없습니다. Hermes 실행 후 작업 폴더와 초안이 여기에 쌓입니다.
+                    아직 이 프로젝트의 산출물이 없습니다.
                   </p>
                 ) : null}
                 {projectArtifacts.slice(0, 5).map((artifact) => (
@@ -222,11 +274,7 @@ export function ExecutionPanel() {
 
             {activeTab === "approval" ? (
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-ink">승인</h3>
-                <div className="rounded-md border border-line bg-panel p-3 text-xs leading-5 text-stone-700">
-                  베타의 샌드박스(안전 승인 모드)는 위험 작업을 승인 대기 목록으로 보여주는 보호 흐름입니다. OS 수준 파일 격리는
-                  상용화 전 추가 예정이며, 현재는 검증된 Hermes 실행 파일과 사용자 승인 UX를 중심으로 보호합니다.
-                </div>
+                <h3 className="text-sm font-semibold text-ink">승인 대기</h3>
                 {pendingApproval ? (
                   <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
                     <div className="mb-2 flex items-center gap-2 text-caution">
@@ -237,22 +285,13 @@ export function ExecutionPanel() {
                     <p className="mt-1 text-xs leading-5 text-stone-700">{pendingApproval.whatWillHappen}</p>
                     <p className="mt-2 text-xs leading-5 text-stone-700">{pendingApproval.expectedResult}</p>
                     <div className="mt-4 grid grid-cols-3 gap-2">
-                      <button
-                        onClick={() => resolveApproval(pendingApproval.id, "approved")}
-                        className="rounded-md bg-ink px-3 py-2 text-xs font-semibold text-white hover:bg-moss"
-                      >
+                      <button onClick={() => resolveApproval(pendingApproval.id, "approved")} className="rounded-md bg-ink px-3 py-2 text-xs font-semibold text-white hover:bg-moss">
                         승인
                       </button>
-                      <button
-                        onClick={() => resolveApproval(pendingApproval.id, "revise")}
-                        className="rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-ink hover:bg-panel"
-                      >
+                      <button onClick={() => resolveApproval(pendingApproval.id, "revise")} className="rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-ink hover:bg-panel">
                         수정
                       </button>
-                      <button
-                        onClick={() => resolveApproval(pendingApproval.id, "cancelled")}
-                        className="rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-stone-600 hover:bg-panel"
-                      >
+                      <button onClick={() => resolveApproval(pendingApproval.id, "cancelled")} className="rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-stone-600 hover:bg-panel">
                         취소
                       </button>
                     </div>
@@ -265,20 +304,20 @@ export function ExecutionPanel() {
               </div>
             ) : null}
 
-            {activeTab === "feedback" ? (
+            {activeTab === "notes" ? (
               <div className="space-y-4">
                 <div className="rounded-md border border-line bg-white p-4 shadow-sm">
-                  <h3 className="text-sm font-semibold text-ink">피드백 / 화면 주석</h3>
+                  <h3 className="text-sm font-semibold text-ink">화면 주석</h3>
                   <label className="mt-3 grid gap-2 text-xs font-semibold text-ink">
                     위치
                     <input value={noteTarget} onChange={(event) => setNoteTarget(event.target.value)} className="rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-signal" />
                   </label>
                   <label className="mt-3 grid gap-2 text-xs font-semibold text-ink">
-                    개선사항
+                    내용
                     <textarea
                       value={noteMessage}
                       onChange={(event) => setNoteMessage(event.target.value)}
-                      placeholder="이 화면에서 막힌 점이나 바꾸면 좋을 점을 적어주세요."
+                      placeholder="막힌 부분이나 바꾸고 싶은 점을 적어주세요."
                       className="min-h-24 rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-signal"
                     />
                   </label>
@@ -311,15 +350,16 @@ export function ExecutionPanel() {
 
             {activeTab === "hermes" ? (
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-ink">Hermes</h3>
+                <h3 className="text-sm font-semibold text-ink">Hermes 설정</h3>
                 <div className="rounded-md border border-line bg-white p-4 text-sm leading-6 text-stone-700">
                   <p>설치 상태: {hermesInstallStatus}</p>
                   <p>연결 상태: {runtimeLabel}</p>
-                  <p className="break-all">모델: {hermesConnection.modelName || "미입력"}</p>
+                  <p className="break-all">Provider: {hermesSetupProvider}</p>
+                  <p className="break-all">Model: {hermesConnection.modelName || "미입력"}</p>
                 </div>
                 <button onClick={openHermesOnboarding} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss">
                   <Settings2 className="h-4 w-4" />
-                  Hermes 작업실 준비 열기
+                  Hermes 설정 열기
                 </button>
               </div>
             ) : null}
@@ -338,17 +378,22 @@ export function ExecutionPanel() {
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const selected = activeTab === tab.id;
+          const hasSignal =
+            (tab.id === "approval" && Boolean(pendingApproval)) ||
+            (tab.id === "artifacts" && projectArtifacts.length > 0) ||
+            (tab.id === "notes" && reviewNotes.length > 0);
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(selected ? null : tab.id)}
               title={tab.label}
-              className={`flex h-10 w-10 items-center justify-center rounded-md transition ${
+              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition ${
                 selected ? "bg-ink text-white shadow-sm" : "text-stone-600 hover:bg-white hover:text-ink"
               }`}
               aria-label={tab.label}
             >
               <Icon className="h-4 w-4" />
+              {hasSignal ? <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-signal" /> : null}
             </button>
           );
         })}

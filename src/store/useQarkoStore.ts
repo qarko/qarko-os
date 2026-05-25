@@ -744,7 +744,17 @@ export const useQarkoStore = create<QarkoState>()(
           needsManualApprovalForPrompt(userPrompt) &&
           approvalForPrompt?.status !== "approved"
         ) {
-          set((current) => ({
+          set((current) => {
+            const currentRun =
+              current.activeRun.projectId === project.id
+                ? current.activeRun
+                : current.projectRuns[project.id] ?? projectRun;
+            const approvalBlockedRun: Run = {
+              ...currentRun,
+              status: "needs_approval",
+              activePhase: "waiting_for_approval",
+            };
+            return {
             projects: current.projects.map((item) =>
               item.id === project.id ? { ...item, status: "needs_approval" } : item
             ),
@@ -773,11 +783,14 @@ export const useQarkoStore = create<QarkoState>()(
                   },
                   ...current.approvals,
                 ],
+            activeRun: current.selectedProjectId === project.id ? approvalBlockedRun : current.activeRun,
+            projectRuns: { ...current.projectRuns, [project.id]: approvalBlockedRun },
             pendingPrompt: userPrompt,
             projectPendingPrompts: { ...current.projectPendingPrompts, [project.id]: userPrompt },
             actionNotice:
               "안전 승인 모드: 위험할 수 있는 요청을 감지했습니다. 오른쪽 승인 패널에서 내용을 확인하고 승인한 뒤 다시 실행하세요.",
-          }));
+            };
+          });
           return;
         }
         const provider = getHermesProviderOption(state.hermesSetupProvider);

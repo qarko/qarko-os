@@ -113,6 +113,8 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(rustSource, /extract_hermes_session_id/);
   assert.match(rustSource, /let session_id = extract_hermes_session_id\(&stderr\)/);
   assert.doesNotMatch(rustSource, /extract_hermes_session_id\(&combined\)/);
+  assert.match(rustSource, /is_hermes_session_id_line/);
+  assert.match(rustSource, /command_result_extracts_session_id_without_returning_it_in_output/);
   assert.match(rustSource, /validate_hermes_session_id\(request\.session_id\.as_deref\(\)\)\?/);
   assert.match(rustSource, /let workspace_dir = qarko_workspace_dir[\s\S]*let runtime_dir = qarko_local_app_dir/);
   assert.match(rustSource, /"--resume",\s*session_id\.as_str\(\)/);
@@ -216,6 +218,9 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.doesNotMatch(storeSource, /project\.automationMode !== "automation"[\s\S]{0,120}needsManualApprovalForPrompt\(userPrompt\)/);
   assert.match(storeSource, /status:\s*"pending"/);
   assert.match(storeSource, /status:\s*"needs_approval"/);
+  assert.match(storeSource, /const approvalBlockedRun: Run/);
+  assert.match(storeSource, /activePhase:\s*"waiting_for_approval"/);
+  assert.match(storeSource, /projectRuns:\s*\{\s*\.\.\.current\.projectRuns,\s*\[project\.id\]:\s*approvalBlockedRun/s);
   assert.match(storeSource, /projectPendingPrompts:\s*nextProjectPendingPrompts/);
   assert.match(storeSource, /nextProjectPendingPrompts\[approval\.projectId\]/);
   assert.doesNotMatch(storeSource, /pendingPrompt:\s*decision === "approved" \? state\.pendingPrompt : ""/);
