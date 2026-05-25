@@ -64,6 +64,20 @@ test("project runs track long-running Hermes status", () => {
   assert.match(storeWithoutLineComments, /const elapsedMs = elapsedMsSince\(currentRun\.startedAt\)/);
 });
 
+test("runs keep chat messages separate from execution logs", () => {
+  const types = readFileSync("src/types/qarko.ts", "utf8");
+  const store = readFileSync("src/store/useQarkoStore.ts", "utf8");
+  const projectView = readFileSync("src/components/projects/ProjectView.tsx", "utf8");
+
+  assert.match(types, /export interface ChatMessage/);
+  assert.match(types, /messages: ChatMessage\[\]/);
+  assert.match(store, /appendChatTranscript/);
+  assert.match(store, /sanitizeRunForStorage[\s\S]*hermesSessionId:\s*undefined/);
+  assert.match(store, /messages:\s*Array\.isArray\(run\.messages\)\s*\?/);
+  assert.match(projectView, /activeRun\.messages/);
+  assert.match(projectView, /if\s*\(!project\)\s*\{/);
+});
+
 test("next-step execution is wired to real Hermes one-shot generation", () => {
   const desktopAdapter = readFileSync("src/adapters/hermesDesktop.ts", "utf8");
   const runnerAdapter = readFileSync("src/adapters/hermesRunner.ts", "utf8");

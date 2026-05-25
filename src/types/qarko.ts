@@ -112,6 +112,14 @@ export interface LogEntry {
   status: Status;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  createdAt: string;
+  status: Status;
+}
+
 export interface Run {
   id: string;
   projectId: string;
@@ -122,6 +130,7 @@ export interface Run {
   runnerTarget: RunnerTarget;
   activePhase: ExecutionPhase;
   logs: LogEntry[];
+  messages: ChatMessage[];
   outputPreview: string;
   stepCount: number;
   startedAt?: string;

@@ -41,6 +41,7 @@ import type {
   ApprovalDecision,
   Artifact,
   AutomationMode,
+  ChatMessage,
   ExecutionPhase,
   FeedbackEntry,
   HermesConnection,
@@ -291,6 +292,7 @@ const emptyRun: Run = {
   runnerTarget: "local",
   activePhase: "ready",
   logs: [],
+  messages: [],
   outputPreview: "프로젝트를 만들고 Hermes를 연결하면 여기에서 실제 작업 결과를 확인할 수 있습니다.",
   stepCount: 0,
   sessionTranscript: "",
@@ -314,6 +316,15 @@ const buildRunForProject = (project: Project): Run => ({
       status: "planned",
     },
   ],
+  messages: [
+    {
+      id: `message-${project.id}-system`,
+      role: "system",
+      content: "프로젝트가 생성되었습니다. Hermes와의 작업은 이 프로젝트 세션 안에서 계속 이어집니다.",
+      createdAt: new Date().toISOString(),
+      status: "planned",
+    },
+  ],
   outputPreview: "",
   stepCount: 0,
   sessionTranscript: "",
@@ -329,6 +340,14 @@ const appendSessionTranscript = (run: Run, logs: LogEntry[]) => {
   return nextTranscript.length > 24000 ? nextTranscript.slice(-24000) : nextTranscript;
 };
 
+const appendChatTranscript = (run: Run, messages: ChatMessage[]) => {
+  const lines = [...run.messages, ...messages].map((message) =>
+    `${message.role} [${message.status}]: ${redactSensitiveText(message.content).slice(0, 1600)}`
+  );
+  const transcript = lines.join("\n\n");
+  return transcript.length > 24000 ? transcript.slice(-24000) : transcript;
+};
+
 const elapsedMsSince = (startedAt?: string) => {
   if (!startedAt) return undefined;
   const startedAtMs = new Date(startedAt).getTime();
@@ -338,7 +357,9 @@ const elapsedMsSince = (startedAt?: string) => {
 const buildHermesRunContext = (run: Run) => {
   const transcript =
     run.sessionTranscript?.trim() ||
-    run.logs.map(transcriptLineFromLog).join("\n\n") ||
+    run.messages
+      .map((message) => `${message.role} [${message.status}]: ${redactSensitiveText(message.content).slice(0, 1600)}`)
+      .join("\n\n") ||
     "No prior project messages yet.";
   const previousOutput = run.outputPreview.trim()
     ? `Previous output summary:\n${redactSensitiveText(run.outputPreview).slice(0, 1600)}`
@@ -373,10 +394,27 @@ const buildHermesChatPrompt = (project: Project, run: Run, userPrompt: string) =
 
 const sanitizeRunForStorage = (run: Run): Run => ({
   ...run,
+  hermesSessionId: undefined,
   outputPreview: redactSensitiveText(run.outputPreview),
   sessionTranscript: redactSensitiveText(run.sessionTranscript ?? ""),
   logs: run.logs.map((log) => ({ ...log, message: redactSensitiveText(log.message) })),
+  messages: (run.messages ?? []).map((message) => ({ ...message, content: redactSensitiveText(message.content) })),
 });
+
+const validStatuses: Status[] = ["idle", "planned", "running", "blocked", "needs_approval", "completed", "failed"];
+const validMessageRoles: Array<ChatMessage["role"]> = ["user", "assistant", "system"];
+
+const normalizeChatMessage = (message: unknown, index: number): ChatMessage => {
+  const entry = message && typeof message === "object" ? (message as Record<string, unknown>) : {};
+  const id = typeof entry.id === "string" && entry.id.trim() ? entry.id : `message-normalized-${index + 1}`;
+  const role = validMessageRoles.includes(entry.role as ChatMessage["role"])
+    ? (entry.role as ChatMessage["role"])
+    : "system";
+  const content = typeof entry.content === "string" ? entry.content : "";
+  const createdAt = typeof entry.createdAt === "string" ? entry.createdAt : "";
+  const status = validStatuses.includes(entry.status as Status) ? (entry.status as Status) : "planned";
+  return { id, role, content, createdAt, status };
+};
 
 const deriveExecutionPhaseFromStatus = (status: Status): ExecutionPhase => {
   if (status === "running") return "running";
@@ -390,6 +428,7 @@ const normalizeRun = (run: Run): Run => ({
   ...run,
   runnerTarget: run.runnerTarget ?? "local",
   activePhase: run.activePhase ?? deriveExecutionPhaseFromStatus(run.status),
+  messages: Array.isArray(run.messages) ? run.messages.map(normalizeChatMessage) : [],
 });
 
 const normalizeRunMap = (runs: Record<string, Run>) =>
@@ -763,6 +802,13 @@ export const useQarkoStore = create<QarkoState>()(
         const runId = projectRun.id;
         const startedAt = new Date().toISOString();
         const safeUserPrompt = redactSensitiveText(userPrompt);
+        const userMessage: ChatMessage = {
+          id: `message-${project.id}-${nextStep}-user`,
+          role: "user",
+          content: safeUserPrompt,
+          createdAt: startedAt,
+          status: "completed",
+        };
         const userLog = {
           id: `log-${project.id}-${nextStep}-user`,
           timestamp: "now",
@@ -794,9 +840,10 @@ export const useQarkoStore = create<QarkoState>()(
             completedAt: undefined,
             elapsedMs: undefined,
             stepCount: nextStep,
+            messages: [...currentRun.messages, userMessage],
             logs: [...currentRun.logs, userLog, runningLog],
             outputPreview: "Hermes가 요청을 처리하는 중입니다.",
-            sessionTranscript: appendSessionTranscript(currentRun, [userLog]),
+            sessionTranscript: appendChatTranscript(currentRun, [userMessage]),
           };
           return {
             projects: current.projects.map((item) => (item.id === project.id ? { ...item, status: "running" } : item)),
@@ -820,6 +867,13 @@ export const useQarkoStore = create<QarkoState>()(
           const output = result.output.trim() || result.message;
           const safeOutput = redactSensitiveText(output);
           const safeResultMessage = redactSensitiveText(result.message);
+          const assistantMessage: ChatMessage = {
+            id: `message-${project.id}-${nextStep}-assistant`,
+            role: "assistant",
+            content: result.ok ? safeOutput : safeResultMessage,
+            createdAt: new Date().toISOString(),
+            status: result.ok ? "completed" : "failed",
+          };
           const artifact: Artifact | null = result.ok
             ? {
                 id: `artifact-${project.id}-${Date.now()}`,
@@ -858,6 +912,7 @@ export const useQarkoStore = create<QarkoState>()(
               elapsedMs,
               outputPreview: safeOutput,
               hermesSessionId: result.sessionId ?? currentRun.hermesSessionId,
+              messages: [...currentRun.messages, assistantMessage],
               sessionTranscript: appendSessionTranscript(currentRun, [
                 {
                   id: `log-${project.id}-${nextStep}-transcript`,
@@ -909,6 +964,13 @@ export const useQarkoStore = create<QarkoState>()(
             const shouldClearHermesSessionId = errorMessage.toLowerCase().includes("session id");
             const completedAt = new Date().toISOString();
             const elapsedMs = elapsedMsSince(currentRun.startedAt);
+            const errorMessageEntry: ChatMessage = {
+              id: `message-${project.id}-${nextStep}-system`,
+              role: "system",
+              content: errorMessage,
+              createdAt: completedAt,
+              status: "failed",
+            };
             const failedRun: Run = {
               ...currentRun,
               status: "failed",
@@ -916,6 +978,7 @@ export const useQarkoStore = create<QarkoState>()(
               completedAt,
               elapsedMs,
               hermesSessionId: shouldClearHermesSessionId ? undefined : currentRun.hermesSessionId,
+              messages: [...currentRun.messages, errorMessageEntry],
               sessionTranscript: appendSessionTranscript(currentRun, [
                 {
                   id: `log-${project.id}-${nextStep}-error-transcript`,

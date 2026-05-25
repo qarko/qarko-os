@@ -7,11 +7,23 @@ import { StatusBadge } from "../ui/StatusBadge";
 import { SectionHeader } from "../ui/SectionHeader";
 
 export function ProjectView() {
-  const { projects, selectedProjectId, approvals, artifacts } = useQarkoStore();
+  const { projects, selectedProjectId, approvals, artifacts, activeRun } = useQarkoStore();
   const project = projects.find((item) => item.id === selectedProjectId) ?? projects[0];
+  if (!project) {
+    return (
+      <div className="mx-auto max-w-7xl p-5 lg:p-8">
+        <div className="rounded-md border border-line bg-white p-8 text-center shadow-sm">
+          <h1 className="text-xl font-semibold text-ink">프로젝트가 없습니다</h1>
+          <p className="mt-2 text-sm text-stone-600">새 프로젝트를 만들거나 기존 세션을 열어 주세요.</p>
+        </div>
+      </div>
+    );
+  }
   const policy = automationPolicies.find((item) => item.mode === project.automationMode) ?? automationPolicies[1];
   const projectApprovals = approvals.filter((approval) => approval.projectId === project.id);
   const projectArtifacts = artifacts.filter((artifact) => artifact.projectId === project.id);
+  const runForProject = activeRun.projectId === project.id ? activeRun : null;
+  const activeMessages = runForProject ? activeRun.messages : [];
 
   return (
     <div className="mx-auto max-w-7xl p-5 lg:p-8">
@@ -41,6 +53,28 @@ export function ProjectView() {
           </div>
         </div>
       </div>
+
+      <section className="mb-6">
+        <SectionHeader title="Hermes Workbench" eyebrow="Session Chat" />
+        <div className="rounded-md border border-line bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-stone-600">{runForProject?.title ?? "프로젝트 세션 준비 중"}</p>
+            {runForProject ? <StatusBadge tone={runForProject.status} /> : null}
+          </div>
+          {activeMessages.length ? (
+            <div className="space-y-2">
+              {activeMessages.map((message) => (
+                <article key={message.id} className="rounded-md bg-panel px-3 py-2">
+                  <p className="text-[11px] uppercase text-moss">{message.role}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink">{message.content}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-stone-600">아직 대화 메시지가 없습니다.</p>
+          )}
+        </div>
+      </section>
 
       <div className="mb-6 grid gap-6 xl:grid-cols-[1fr_0.9fr]">
         <section>

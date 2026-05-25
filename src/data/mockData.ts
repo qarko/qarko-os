@@ -290,6 +290,22 @@ export const activeRun: Run = {
   outputPreview: "Hermes가 요청을 읽고 작업 범위, 필요한 파일, 승인 조건을 정리하고 있습니다.",
   sessionTranscript:
     "Chief of Staff [completed]: 작업 목표를 실행 가능한 단위로 정리했습니다.\n\nResearcher [running]: 참고 자료와 사용자 막힘 패턴을 정리 중입니다.",
+  messages: [
+    {
+      id: "message-1",
+      role: "system",
+      content: "프로젝트 세션이 시작되었습니다.",
+      createdAt: "2026-05-18T13:04:00.000Z",
+      status: "completed",
+    },
+    {
+      id: "message-2",
+      role: "assistant",
+      content: "작업 목표를 실행 가능한 범위로 정리했습니다.",
+      createdAt: "2026-05-18T13:06:00.000Z",
+      status: "running",
+    },
+  ],
   logs: [
     {
       id: "log-1",
