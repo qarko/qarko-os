@@ -111,6 +111,7 @@ export interface Run {
   outputPreview: string;
   stepCount: number;
   sessionTranscript?: string;
+  hermesSessionId?: string;
 }
 
 export interface Approval {

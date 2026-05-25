@@ -60,6 +60,7 @@ struct HermesOneShotRequest {
     api_key: String,
     project_id: Option<String>,
     run_id: Option<String>,
+    session_id: Option<String>,
     toolsets: Option<String>,
 }
 
@@ -70,6 +71,7 @@ struct CommandResult {
     message: String,
     output: String,
     workspace_path: Option<String>,
+    session_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -291,6 +293,43 @@ fn strip_ansi_codes(value: &str) -> String {
     result
 }
 
+fn extract_hermes_session_id(value: &str) -> Option<String> {
+    let clean_value = strip_ansi_codes(value);
+    for line in clean_value.lines() {
+        let line = line.trim();
+        let lower = line.to_lowercase();
+        let raw_id = if let Some(rest) = lower.strip_prefix("session_id:") {
+            let offset = line.len() - rest.len();
+            line[offset..].trim()
+        } else if let Some(rest) = line.strip_prefix("Session ID:") {
+            rest.trim()
+        } else {
+            continue;
+        };
+        if raw_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+            && !raw_id.is_empty()
+        {
+            return Some(raw_id.to_string());
+        }
+    }
+    None
+}
+
+fn validate_hermes_session_id(value: Option<&str>) -> Result<Option<String>, String> {
+    let Some(session_id) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if !session_id
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        return Err("Hermes session id is invalid. QARKO cleared the stored session pointer; try this request again.".to_string());
+    }
+    Ok(Some(session_id.to_string()))
+}
+
 fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
@@ -314,6 +353,7 @@ fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
         },
         output: combined,
         workspace_path: None,
+        session_id: None,
     })
 }
 
@@ -325,6 +365,7 @@ fn command_result_from_output(status_success: bool, stdout: &[u8], stderr: &[u8]
         .filter(|value| !value.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
+    let session_id = extract_hermes_session_id(&stderr);
     let combined = redact_sensitive_output(combined);
 
     CommandResult {
@@ -336,6 +377,7 @@ fn command_result_from_output(status_success: bool, stdout: &[u8], stderr: &[u8]
         },
         output: combined,
         workspace_path: None,
+        session_id,
     }
 }
 
@@ -395,6 +437,7 @@ fn run_hidden_command_with_timeout(
                 message: "Hermes execution timed out.".to_string(),
                 output: "Hermes did not finish within 3 minutes. Check auth, network, and model settings, then try again.".to_string(),
                 workspace_path: None,
+                session_id: None,
             });
         }
         thread::sleep(Duration::from_millis(250));
@@ -582,6 +625,7 @@ fn run_optional_hermes_command(hermes: &PathBuf, args: &[&str]) -> CommandResult
         message: error,
         output: String::new(),
         workspace_path: None,
+        session_id: None,
     })
 }
 
@@ -692,6 +736,7 @@ fn open_hermes_setup_terminal(section: Option<String>) -> Result<CommandResult, 
                 .to_string(),
         output: "Visible terminal launched for hermes setup.".to_string(),
         workspace_path: None,
+        session_id: None,
     })
 }
 
@@ -757,6 +802,7 @@ fn configure_hermes_tool_preset(request: HermesToolPresetRequest) -> Result<Comm
                 message: format!("Failed to set Hermes config {}.", key),
                 output: outputs.join("\n"),
                 workspace_path: None,
+                session_id: None,
             });
         }
     }
@@ -771,6 +817,7 @@ fn configure_hermes_tool_preset(request: HermesToolPresetRequest) -> Result<Comm
                 message: format!("Failed to enable Hermes toolset {}.", tool),
                 output: outputs.join("\n"),
                 workspace_path: None,
+                session_id: None,
             });
         }
     }
@@ -789,6 +836,7 @@ fn configure_hermes_tool_preset(request: HermesToolPresetRequest) -> Result<Comm
             .to_string(),
         output: outputs.join("\n"),
         workspace_path: None,
+        session_id: None,
     })
 }
 
@@ -810,6 +858,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             message: "For security, QARKO does not save API keys through Hermes config commands. The key is used only for the current connection test/run.".to_string(),
             output: outputs.join("\n"),
             workspace_path: None,
+            session_id: None,
         });
     }
 
@@ -829,6 +878,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
                 message: error_message.to_string(),
                 output: outputs.join("\n"),
                 workspace_path: None,
+                session_id: None,
             });
         }
     }
@@ -846,6 +896,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             message: "Failed to save the Hermes API base URL.".to_string(),
             output: outputs.join("\n"),
             workspace_path: None,
+            session_id: None,
         });
     }
 
@@ -861,6 +912,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             message: "Failed to save the Hermes API mode.".to_string(),
             output: outputs.join("\n"),
             workspace_path: None,
+            session_id: None,
         });
     }
 
@@ -873,6 +925,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             .collect::<Vec<_>>()
             .join("\n"),
         workspace_path: None,
+        session_id: None,
     })
 }
 
@@ -931,6 +984,7 @@ fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, S
             output
         },
         workspace_path: None,
+        session_id: None,
     })
 }
 
@@ -957,6 +1011,7 @@ fn open_hermes_login_terminal(request: HermesLoginRequest) -> Result<CommandResu
         message: "Hermes login window opened. Complete the login there, then return to QARKO OS and press Check auth.".to_string(),
         output: "Visible fallback launched for hermes auth add --type oauth.".to_string(),
         workspace_path: None,
+        session_id: None,
     })
 }
 
@@ -974,6 +1029,7 @@ fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult
             message: "Provider auth list failed.".to_string(),
             output: error,
             workspace_path: None,
+            session_id: None,
         });
     let doctor = run_optional_hermes_command(&hermes, &["doctor"]);
     let combined = [
@@ -1005,6 +1061,7 @@ fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult
         },
         output: redact_sensitive_output(combined),
         workspace_path: None,
+        session_id: None,
     })
 }
 
@@ -1030,6 +1087,7 @@ fn open_qarko_workspace_path(path: String) -> Result<CommandResult, String> {
         message: "QARKO workspace folder opened.".to_string(),
         output: canonical_path_text(&workspace_path),
         workspace_path: Some(canonical_path_text(&workspace_path)),
+        session_id: None,
     })
 }
 
@@ -1055,6 +1113,7 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
             "The task prompt is too long. Shorten the project goal and try again.".to_string(),
         );
     }
+    let resume_session_id = validate_hermes_session_id(request.session_id.as_deref())?;
 
     let workspace_dir = qarko_workspace_dir(request.project_id.clone(), request.run_id.clone())?;
     let runtime_dir = qarko_local_app_dir().join("runtime");
@@ -1098,6 +1157,9 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
     if !model.is_empty() {
         command.args(["--model", model]);
     }
+    if let Some(session_id) = resume_session_id {
+        command.args(["--resume", session_id.as_str()]);
+    }
     let toolsets = request
         .toolsets
         .as_deref()
@@ -1129,21 +1191,25 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
     let _ = fs::remove_file(prompt_path);
     let result = result?;
     if result.ok {
+        let session_id = result.session_id.clone();
         Ok(CommandResult {
             ok: true,
-            message: "Hermes generated the MVP execution draft.".to_string(),
+            message: "Hermes completed the project turn.".to_string(),
             output: format!(
                 "Hermes workspace folder is available from the QARKO artifacts panel.\n\n{}",
                 result.output
             ),
             workspace_path: Some(canonical_path_text(&workspace_dir)),
+            session_id,
         })
     } else {
+        let session_id = result.session_id.clone();
         Ok(CommandResult {
             ok: false,
             message: "Hermes execution failed.".to_string(),
             output: result.output,
             workspace_path: Some(canonical_path_text(&workspace_dir)),
+            session_id,
         })
     }
 }

@@ -10,7 +10,7 @@ import {
   openHermesLoginTerminal,
   loginHermesProvider,
   openHermesSetupTerminal,
-  runHermesBusinessStep,
+  runHermesWorkbenchStep,
   startHermesInstall,
   updateHermesToVerifiedVersion,
 } from "../adapters/hermesDesktop";
@@ -152,7 +152,7 @@ const makeProjectName = (idea: string) => {
 
   const lowerIdea = normalized.toLowerCase();
   if (lowerIdea.includes("newsletter") || lowerIdea.includes("뉴스레터")) return "Newsletter Growth System";
-  if (lowerIdea.includes("instagram") || lowerIdea.includes("threads") || lowerIdea.includes("인스타")) return "Social Growth Sprint";
+  if (lowerIdea.includes("instagram") || lowerIdea.includes("threads") || lowerIdea.includes("인스타")) return "Web Publishing Workflow";
   if (lowerIdea.includes("saas") || lowerIdea.includes("서비스")) return "Digital Product";
   if (lowerIdea.includes("agency") || lowerIdea.includes("대행")) return "Service Workflow";
 
@@ -163,17 +163,17 @@ const makeProjectBlueprint = (idea: string) => {
   const lowerIdea = idea.toLowerCase();
   if (lowerIdea.includes("threads") || lowerIdea.includes("instagram") || lowerIdea.includes("인스타")) {
     return {
-      goalTitle: "첫 베타 테스터 모집 흐름 만들기",
-      metric: "게시글 3개, DM 응답 문구 2개, 피드백 요청 1개",
-      workflowTitle: "Audience to Feedback Loop",
-      stages: ["대상 정의", "메시지 초안", "게시 승인", "피드백 수집"],
+      goalTitle: "웹 게시 작업 흐름 만들기",
+      metric: "목표, 초안, 승인 기준, 게시 전 체크리스트 정리",
+      workflowTitle: "Draft to Approval Flow",
+      stages: ["목표 정리", "초안 작성", "승인 확인", "결과 정리"],
       tasks: [
-        ["테스터 조건 정리", "누구에게 부탁할지 한 문장으로 정리", "chief", false],
-        ["Threads 게시글 초안", "초보자도 이해할 수 있는 모집 문구 작성", "marketer", false],
-        ["외부 게시 전 승인", "과장 표현과 개인정보 안내를 확인", "reviewer", true],
+        ["게시 목표 정리", "무엇을 누구에게 전달할지 한 문장으로 정리", "chief", false],
+        ["초안 작성", "사용자가 요청한 채널에 맞는 초안 작성", "operator", false],
+        ["외부 게시 전 승인", "개인정보, 과장 표현, 외부 공개 여부를 확인", "reviewer", true],
       ] as const,
-      risks: ["기술 설명이 길어지면 반응이 낮아질 수 있음", "피드백 요청 범위가 모호하면 답변 품질이 떨어질 수 있음"],
-      nextAction: "테스터에게 부탁할 행동을 설치, 첫 실행, 피드백 전송 3단계로 줄이세요.",
+      risks: ["외부 게시 범위가 불명확하면 원치 않는 공개가 생길 수 있음", "개인정보나 계정 정보가 포함되지 않도록 확인이 필요함"],
+      nextAction: "게시할 목적과 채널, 공개해도 되는 범위를 Hermes에게 알려주세요.",
     };
   }
 
@@ -248,8 +248,8 @@ const makeWorkspaceSnapshot = (state: QarkoState): WorkspaceSnapshot => ({
   plugins: state.plugins,
   feedback: state.feedback.map(sanitizeFeedbackForStorage),
   reviewNotes: state.reviewNotes.map(sanitizeReviewNoteForStorage),
-  activeRun: sanitizeRunForStorage(state.activeRun),
-  projectRuns: projectRunsWithActiveRun(state.projectRuns, state.activeRun),
+  activeRun: sanitizeRunForCloud(state.activeRun),
+  projectRuns: projectRunsWithActiveRunForCloud(state.projectRuns, state.activeRun),
   actionNotice: redactSensitiveText(state.actionNotice),
 });
 
@@ -263,8 +263,8 @@ const applyWorkspaceSnapshot = (snapshot: WorkspaceSnapshot) => ({
   plugins: snapshot.plugins,
   feedback: (snapshot.feedback ?? []).map(sanitizeFeedbackForStorage),
   reviewNotes: (snapshot.reviewNotes ?? []).map(sanitizeReviewNoteForStorage),
-  activeRun: sanitizeRunForStorage(snapshot.activeRun),
-  projectRuns: projectRunsWithActiveRun(snapshot.projectRuns ?? {}, snapshot.activeRun),
+  activeRun: sanitizeRunForCloud(snapshot.activeRun),
+  projectRuns: projectRunsWithActiveRunForCloud(snapshot.projectRuns ?? {}, snapshot.activeRun),
   projectPendingPrompts: {},
   pendingPrompt: "",
   actionNotice: redactSensitiveText(snapshot.actionNotice),
@@ -366,13 +366,29 @@ const sanitizeRunForStorage = (run: Run): Run => ({
   logs: run.logs.map((log) => ({ ...log, message: redactSensitiveText(log.message) })),
 });
 
+const sanitizeRunForCloud = (run: Run): Run => ({
+  ...sanitizeRunForStorage(run),
+  hermesSessionId: undefined,
+});
+
 const sanitizeRunMapForStorage = (runs: Record<string, Run>) =>
   Object.fromEntries(Object.entries(runs).map(([projectId, run]) => [projectId, sanitizeRunForStorage(run)]));
+
+const sanitizeRunMapForCloud = (runs: Record<string, Run>) =>
+  Object.fromEntries(Object.entries(runs).map(([projectId, run]) => [projectId, sanitizeRunForCloud(run)]));
 
 const projectRunsWithActiveRun = (runs: Record<string, Run>, activeRun: Run) => {
   const sanitizedRuns = sanitizeRunMapForStorage(runs);
   if (activeRun.projectId && !sanitizedRuns[activeRun.projectId]) {
     sanitizedRuns[activeRun.projectId] = sanitizeRunForStorage(activeRun);
+  }
+  return sanitizedRuns;
+};
+
+const projectRunsWithActiveRunForCloud = (runs: Record<string, Run>, activeRun: Run) => {
+  const sanitizedRuns = sanitizeRunMapForCloud(runs);
+  if (activeRun.projectId && !sanitizedRuns[activeRun.projectId]) {
+    sanitizedRuns[activeRun.projectId] = sanitizeRunForCloud(activeRun);
   }
   return sanitizedRuns;
 };
@@ -757,13 +773,14 @@ export const useQarkoStore = create<QarkoState>()(
         });
 
         try {
-          const result = await runHermesBusinessStep({
+          const result = await runHermesWorkbenchStep({
             prompt: buildHermesChatPrompt(project, projectRun, userPrompt),
             modelName: state.hermesConnection.modelName,
             provider: state.hermesSetupProvider,
             apiKey: state.hermesConnection.apiKey,
             projectId: project.id,
             runId,
+            sessionId: projectRun.hermesSessionId,
             toolsets: toolsetsForHermesPreset(state.hermesToolPreset),
           });
           const output = result.output.trim() || result.message;
@@ -801,6 +818,7 @@ export const useQarkoStore = create<QarkoState>()(
               ...currentRun,
               status: result.ok ? "completed" : "failed",
               outputPreview: safeOutput,
+              hermesSessionId: result.sessionId ?? currentRun.hermesSessionId,
               sessionTranscript: appendSessionTranscript(currentRun, [
                 {
                   id: `log-${project.id}-${nextStep}-transcript`,
@@ -849,9 +867,11 @@ export const useQarkoStore = create<QarkoState>()(
               (current.activeRun.projectId === project.id ? current.activeRun : projectRun);
             if (currentRun.id !== runId) return {};
             const errorMessage = redactSensitiveText(error instanceof Error ? error.message : "Hermes 실행 중 오류가 발생했습니다.");
+            const shouldClearHermesSessionId = errorMessage.toLowerCase().includes("session id");
             const failedRun: Run = {
               ...currentRun,
               status: "failed",
+              hermesSessionId: shouldClearHermesSessionId ? undefined : currentRun.hermesSessionId,
               sessionTranscript: appendSessionTranscript(currentRun, [
                 {
                   id: `log-${project.id}-${nextStep}-error-transcript`,
@@ -1325,6 +1345,8 @@ export const useQarkoStore = create<QarkoState>()(
           const restoredSnapshot = applyWorkspaceSnapshot(saved);
           set((current) => ({
             ...restoredSnapshot,
+            activeRun: current.activeRun,
+            projectRuns: current.projectRuns,
             approvals: current.approvals.map(sanitizeApprovalForStorage),
             projectPendingPrompts: current.projectPendingPrompts,
             pendingPrompt: restoredSnapshot.selectedProjectId

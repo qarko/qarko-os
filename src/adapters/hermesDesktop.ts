@@ -43,6 +43,7 @@ export interface HermesCommandResult {
   message: string;
   output: string;
   workspacePath?: string;
+  sessionId?: string;
 }
 
 export interface HermesHealthReport {
@@ -62,6 +63,7 @@ export interface HermesOneShotRequest {
   apiKey: string;
   projectId?: string;
   runId?: string;
+  sessionId?: string;
   toolsets?: string;
   workspacePath?: string;
 }
@@ -224,7 +226,7 @@ export const checkHermesAuthStatus = async (provider: string): Promise<HermesCom
   return invoke<HermesCommandResult>("check_hermes_auth_status", { request: { provider } });
 };
 
-export const runHermesBusinessStep = async (request: HermesOneShotRequest): Promise<HermesCommandResult> => {
+export const runHermesWorkbenchStep = async (request: HermesOneShotRequest): Promise<HermesCommandResult> => {
   if (!hasTauriRuntime()) {
     return {
       ok: true,
