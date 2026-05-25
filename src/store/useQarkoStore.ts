@@ -41,6 +41,7 @@ import type {
   ApprovalDecision,
   Artifact,
   AutomationMode,
+  ExecutionPhase,
   FeedbackEntry,
   HermesConnection,
   HermesHealthSnapshot,
@@ -55,6 +56,7 @@ import type {
   Project,
   ReviewNote,
   Run,
+  Status,
   SyncStatus,
   WorkspaceSnapshot,
 } from "../types/qarko";
@@ -263,8 +265,8 @@ const applyWorkspaceSnapshot = (snapshot: WorkspaceSnapshot) => ({
   plugins: snapshot.plugins,
   feedback: (snapshot.feedback ?? []).map(sanitizeFeedbackForStorage),
   reviewNotes: (snapshot.reviewNotes ?? []).map(sanitizeReviewNoteForStorage),
-  activeRun: sanitizeRunForCloud(snapshot.activeRun),
-  projectRuns: projectRunsWithActiveRunForCloud(snapshot.projectRuns ?? {}, snapshot.activeRun),
+  activeRun: sanitizeRunForCloud(normalizeRun(snapshot.activeRun)),
+  projectRuns: projectRunsWithActiveRunForCloud(normalizeRunMap(snapshot.projectRuns ?? {}), normalizeRun(snapshot.activeRun)),
   projectPendingPrompts: {},
   pendingPrompt: "",
   actionNotice: redactSensitiveText(snapshot.actionNotice),
@@ -286,6 +288,8 @@ const emptyRun: Run = {
   activeRoleName: "QARKO OS",
   modelName: "Hermes 연결 필요",
   status: "planned",
+  runnerTarget: "local",
+  activePhase: "ready",
   logs: [],
   outputPreview: "프로젝트를 만들고 Hermes를 연결하면 여기에서 실제 작업 결과를 확인할 수 있습니다.",
   stepCount: 0,
@@ -299,6 +303,8 @@ const buildRunForProject = (project: Project): Run => ({
   activeRoleName: "Hermes",
   modelName: "Hermes 연결 필요",
   status: "planned",
+  runnerTarget: "local",
+  activePhase: "ready",
   logs: [
     {
       id: `log-${project.id}-start`,
@@ -366,13 +372,30 @@ const sanitizeRunForStorage = (run: Run): Run => ({
   logs: run.logs.map((log) => ({ ...log, message: redactSensitiveText(log.message) })),
 });
 
+const deriveExecutionPhaseFromStatus = (status: Status): ExecutionPhase => {
+  if (status === "running") return "running";
+  if (status === "needs_approval") return "waiting_for_approval";
+  if (status === "failed") return "failed";
+  if (status === "completed") return "completed";
+  return "ready";
+};
+
+const normalizeRun = (run: Run): Run => ({
+  ...run,
+  runnerTarget: run.runnerTarget ?? "local",
+  activePhase: run.activePhase ?? deriveExecutionPhaseFromStatus(run.status),
+});
+
+const normalizeRunMap = (runs: Record<string, Run>) =>
+  Object.fromEntries(Object.entries(runs).map(([projectId, run]) => [projectId, normalizeRun(run)]));
+
 const sanitizeRunForCloud = (run: Run): Run => ({
-  ...sanitizeRunForStorage(run),
+  ...sanitizeRunForStorage(normalizeRun(run)),
   hermesSessionId: undefined,
 });
 
 const sanitizeRunMapForStorage = (runs: Record<string, Run>) =>
-  Object.fromEntries(Object.entries(runs).map(([projectId, run]) => [projectId, sanitizeRunForStorage(run)]));
+  Object.fromEntries(Object.entries(normalizeRunMap(runs)).map(([projectId, run]) => [projectId, sanitizeRunForStorage(run)]));
 
 const sanitizeRunMapForCloud = (runs: Record<string, Run>) =>
   Object.fromEntries(Object.entries(runs).map(([projectId, run]) => [projectId, sanitizeRunForCloud(run)]));
@@ -1414,11 +1437,14 @@ export const useQarkoStore = create<QarkoState>()(
       },
       merge: (persistedState, currentState) => {
         const restored = persistedState as Partial<QarkoState>;
-        const restoredRuns = restored.projectRuns ?? (restored.activeRun?.projectId ? { [restored.activeRun.projectId]: restored.activeRun } : {});
+        const restoredActiveRun = restored.activeRun ? normalizeRun(restored.activeRun) : currentState.activeRun;
+        const restoredRunsSource = restored.projectRuns ?? (restored.activeRun?.projectId ? { [restored.activeRun.projectId]: restored.activeRun } : {});
+        const restoredRuns = normalizeRunMap(restoredRunsSource);
         const restoredPendingPrompts = restored.projectPendingPrompts ?? {};
         return {
           ...currentState,
           ...restored,
+          activeRun: restoredActiveRun,
           projectRuns: restoredRuns,
           projectPendingPrompts: restoredPendingPrompts,
           showHermesOnboarding: false,

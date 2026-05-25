@@ -16,6 +16,18 @@ export type SyncStatus = "idle" | "syncing" | "synced" | "error";
 export type HermesStatus = "not_configured" | "testing" | "connected" | "error";
 export type HermesInstallStatus = "unknown" | "installed" | "missing" | "installing" | "error";
 export type HermesToolPreset = "safe" | "work" | "developer" | "automation";
+export type RunnerTarget = "local";
+export type ExecutionPhase =
+  | "ready"
+  | "queued"
+  | "starting"
+  | "resuming_session"
+  | "running"
+  | "receiving_output"
+  | "waiting_for_approval"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface Workspace {
   id: string;
@@ -107,9 +119,14 @@ export interface Run {
   activeRoleName: string;
   modelName: string;
   status: Status;
+  runnerTarget: RunnerTarget;
+  activePhase: ExecutionPhase;
   logs: LogEntry[];
   outputPreview: string;
   stepCount: number;
+  startedAt?: string;
+  completedAt?: string;
+  elapsedMs?: number;
   sessionTranscript?: string;
   hermesSessionId?: string;
 }

@@ -284,6 +284,8 @@ export const activeRun: Run = {
   activeRoleName: "Researcher",
   modelName: "Hermes Mock / GPT-compatible",
   status: "running",
+  runnerTarget: "local",
+  activePhase: "running",
   stepCount: 3,
   outputPreview: "Hermes가 요청을 읽고 작업 범위, 필요한 파일, 승인 조건을 정리하고 있습니다.",
   sessionTranscript:

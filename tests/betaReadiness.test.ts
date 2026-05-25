@@ -26,6 +26,32 @@ test("beta workspace starts without seeded sample projects", () => {
   assert.match(storeSource, /qarko-os-workspace-v4/);
 });
 
+test("Runner state is modeled separately from raw Hermes adapter output", () => {
+  const types = readFileSync("src/types/qarko.ts", "utf8");
+  const mockData = readFileSync("src/data/mockData.ts", "utf8");
+  const store = readFileSync("src/store/useQarkoStore.ts", "utf8");
+
+  assert.match(types, /export type RunnerTarget = "local"/);
+  assert.match(types, /export type ExecutionPhase =/);
+  assert.match(types, /runnerTarget: RunnerTarget/);
+  assert.match(types, /startedAt\?: string/);
+  assert.match(types, /completedAt\?: string/);
+  assert.match(types, /activePhase: ExecutionPhase/);
+  assert.match(mockData, /runnerTarget:\s*"local"/);
+  assert.match(mockData, /activePhase:\s*"running"/);
+  assert.match(store, /const deriveExecutionPhaseFromStatus/);
+  assert.match(store, /status === "running"\) return "running"/);
+  assert.match(store, /status === "needs_approval"\) return "waiting_for_approval"/);
+  assert.match(store, /status === "failed"\) return "failed"/);
+  assert.match(store, /status === "completed"\) return "completed"/);
+  assert.match(store, /return "ready"/);
+  assert.match(store, /const normalizeRun =/);
+  assert.match(store, /runnerTarget: run\.runnerTarget \?\? "local"/);
+  assert.match(store, /activePhase: run\.activePhase \?\? deriveExecutionPhaseFromStatus\(run\.status\)/);
+  assert.match(store, /applyWorkspaceSnapshot[\s\S]*normalizeRun\(snapshot\.activeRun\)/);
+  assert.match(store, /merge: \(persistedState, currentState\)[\s\S]*restoredActiveRun = restored\.activeRun \? normalizeRun\(restored\.activeRun\) : currentState\.activeRun/);
+});
+
 test("next-step execution is wired to real Hermes one-shot generation", () => {
   const desktopAdapter = readFileSync("src/adapters/hermesDesktop.ts", "utf8");
   const rustSource = readFileSync("src-tauri/src/lib.rs", "utf8");
