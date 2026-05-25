@@ -329,6 +329,12 @@ const appendSessionTranscript = (run: Run, logs: LogEntry[]) => {
   return nextTranscript.length > 24000 ? nextTranscript.slice(-24000) : nextTranscript;
 };
 
+const elapsedMsSince = (startedAt?: string) => {
+  if (!startedAt) return undefined;
+  const startedAtMs = new Date(startedAt).getTime();
+  return Number.isFinite(startedAtMs) ? Date.now() - startedAtMs : undefined;
+};
+
 const buildHermesRunContext = (run: Run) => {
   const transcript =
     run.sessionTranscript?.trim() ||
@@ -755,6 +761,7 @@ export const useQarkoStore = create<QarkoState>()(
 
         const nextStep = projectRun.stepCount + 1;
         const runId = projectRun.id;
+        const startedAt = new Date().toISOString();
         const safeUserPrompt = redactSensitiveText(userPrompt);
         const userLog = {
           id: `log-${project.id}-${nextStep}-user`,
@@ -782,6 +789,10 @@ export const useQarkoStore = create<QarkoState>()(
             activeRoleName: "Hermes",
             modelName: current.hermesConnection.modelName || currentRun.modelName,
             status: "running",
+            activePhase: currentRun.hermesSessionId ? "resuming_session" : "starting",
+            startedAt,
+            completedAt: undefined,
+            elapsedMs: undefined,
             stepCount: nextStep,
             logs: [...currentRun.logs, userLog, runningLog],
             outputPreview: "Hermes가 요청을 처리하는 중입니다.",
@@ -837,9 +848,14 @@ export const useQarkoStore = create<QarkoState>()(
               current.projectRuns[project.id] ??
               (current.activeRun.projectId === project.id ? current.activeRun : projectRun);
             if (currentRun.id !== runId) return {};
+            const completedAt = new Date().toISOString();
+            const elapsedMs = elapsedMsSince(currentRun.startedAt);
             const completedRun: Run = {
               ...currentRun,
               status: result.ok ? "completed" : "failed",
+              activePhase: result.ok ? "completed" : "failed",
+              completedAt,
+              elapsedMs,
               outputPreview: safeOutput,
               hermesSessionId: result.sessionId ?? currentRun.hermesSessionId,
               sessionTranscript: appendSessionTranscript(currentRun, [
@@ -891,9 +907,14 @@ export const useQarkoStore = create<QarkoState>()(
             if (currentRun.id !== runId) return {};
             const errorMessage = redactSensitiveText(error instanceof Error ? error.message : "Hermes 실행 중 오류가 발생했습니다.");
             const shouldClearHermesSessionId = errorMessage.toLowerCase().includes("session id");
+            const completedAt = new Date().toISOString();
+            const elapsedMs = elapsedMsSince(currentRun.startedAt);
             const failedRun: Run = {
               ...currentRun,
               status: "failed",
+              activePhase: "failed",
+              completedAt,
+              elapsedMs,
               hermesSessionId: shouldClearHermesSessionId ? undefined : currentRun.hermesSessionId,
               sessionTranscript: appendSessionTranscript(currentRun, [
                 {

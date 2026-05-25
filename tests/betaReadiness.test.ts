@@ -52,6 +52,18 @@ test("Runner state is modeled separately from raw Hermes adapter output", () => 
   assert.match(store, /merge: \(persistedState, currentState\)[\s\S]*restoredActiveRun = restored\.activeRun \? normalizeRun\(restored\.activeRun\) : currentState\.activeRun/);
 });
 
+test("project runs track long-running Hermes status", () => {
+  const store = readFileSync("src/store/useQarkoStore.ts", "utf8");
+  const storeWithoutLineComments = store.replace(/\/\/.*$/gm, "");
+
+  assert.match(storeWithoutLineComments, /activePhase:\s*currentRun\.hermesSessionId\s*\?\s*"resuming_session"\s*:\s*"starting"/);
+  assert.match(storeWithoutLineComments, /activePhase:\s*result\.ok\s*\?\s*"completed"\s*:\s*"failed"/);
+  assert.match(storeWithoutLineComments, /const startedAt = new Date\(\)\.toISOString\(\)/);
+  assert.match(storeWithoutLineComments, /const completedAt = new Date\(\)\.toISOString\(\)/);
+  assert.match(storeWithoutLineComments, /const elapsedMsSince = \(startedAt\?: string\)/);
+  assert.match(storeWithoutLineComments, /const elapsedMs = elapsedMsSince\(currentRun\.startedAt\)/);
+});
+
 test("next-step execution is wired to real Hermes one-shot generation", () => {
   const desktopAdapter = readFileSync("src/adapters/hermesDesktop.ts", "utf8");
   const runnerAdapter = readFileSync("src/adapters/hermesRunner.ts", "utf8");
