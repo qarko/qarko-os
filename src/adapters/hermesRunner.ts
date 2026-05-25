@@ -1,5 +1,20 @@
 import { runHermesWorkbenchStep } from "./hermesDesktop";
 
+export interface HermesWorkspaceChangeSummary {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  truncated?: boolean;
+  filesTruncated?: boolean;
+  fileLimit?: number;
+  files?: Array<{
+    path: string;
+    status: "added" | "modified" | "deleted";
+    insertions: number;
+    deletions: number;
+  }>;
+}
+
 export interface HermesRunnerRequest {
   prompt: string;
   modelName: string;
@@ -17,6 +32,7 @@ export interface HermesRunnerResult {
   output: string;
   workspacePath?: string;
   sessionId?: string;
+  changeSummary?: HermesWorkspaceChangeSummary;
 }
 
 export const runLocalHermesTurn = async (request: HermesRunnerRequest): Promise<HermesRunnerResult> => {

@@ -57,6 +57,11 @@ import type {
   Project,
   ReviewNote,
   Run,
+  RunAgentActivity,
+  RunBrowserPreview,
+  RunChangeSummary,
+  RunCommandStatus,
+  RunProgressStep,
   Status,
   SyncStatus,
   WorkspaceSnapshot,
@@ -195,6 +200,73 @@ const makeProjectBlueprint = (idea: string) => {
   };
 };
 
+const emptyChangeSummary: RunChangeSummary = {
+  filesChanged: 0,
+  insertions: 0,
+  deletions: 0,
+  files: [],
+};
+
+const buildHermesCommandLabel = (modelName?: string) => {
+  const model = modelName?.trim();
+  return model ? `hermes chat -q --model ${model}` : "hermes chat -q";
+};
+
+const buildProgressSteps = (
+  phase: ExecutionPhase,
+  commandStatus: RunCommandStatus = "idle"
+): RunProgressStep[] => {
+  const running = commandStatus === "running";
+  const completed = phase === "completed";
+  const failed = phase === "failed";
+  const waiting = phase === "waiting_for_approval";
+  return [
+    {
+      id: "request",
+      label: "요청 확인",
+      status: running || completed || failed || waiting ? "completed" : "pending",
+    },
+    {
+      id: "session",
+      label: "프로젝트 세션 준비",
+      status: phase === "starting" || phase === "resuming_session" ? "running" : completed || failed || phase === "running" || phase === "receiving_output" ? "completed" : waiting ? "blocked" : "pending",
+    },
+    {
+      id: "hermes",
+      label: "Hermes CLI 실행",
+      status: phase === "running" || phase === "receiving_output" ? "running" : completed ? "completed" : failed ? "failed" : waiting ? "blocked" : "pending",
+    },
+    {
+      id: "outputs",
+      label: "출력 및 작업 폴더 정리",
+      status: completed ? "completed" : failed ? "failed" : "pending",
+    },
+    {
+      id: "review",
+      label: "변경 사항 검토",
+      status: completed ? "completed" : "pending",
+    },
+  ];
+};
+
+const buildAgentActivities = (project?: Project, activeRoleName = "Hermes"): RunAgentActivity[] => {
+  const roles = project?.roles?.length
+    ? project.roles
+    : [{ id: "hermes", name: activeRoleName, status: "planned" as Status, currentFocus: "Hermes CLI 세션 대기" }];
+  return roles.slice(0, 5).map((role) => ({
+    id: role.id,
+    name: role.name,
+    status: role.status,
+    detail: role.currentFocus,
+  }));
+};
+
+const buildBrowserPreview = (workspacePath?: string): RunBrowserPreview => ({
+  enabled: Boolean(workspacePath),
+  label: workspacePath ? "작업 폴더 연결됨" : "브라우저 미연결",
+  url: workspacePath?.startsWith("http") ? workspacePath : undefined,
+});
+
 const buildProjectFromIdea = (input: NewProjectInput, index: number): Project => {
   const trimmedIdea = redactSensitiveText(input.idea.trim());
   const blueprint = makeProjectBlueprint(trimmedIdea);
@@ -291,6 +363,12 @@ const emptyRun: Run = {
   status: "planned",
   runnerTarget: "local",
   activePhase: "ready",
+  currentCommand: undefined,
+  commandStatus: "idle",
+  progressSteps: buildProgressSteps("ready"),
+  changeSummary: emptyChangeSummary,
+  agentActivities: buildAgentActivities(undefined, "QARKO OS"),
+  browserPreview: buildBrowserPreview(),
   logs: [],
   messages: [],
   outputPreview: "프로젝트를 만들고 Hermes를 연결하면 여기에서 실제 작업 결과를 확인할 수 있습니다.",
@@ -307,6 +385,12 @@ const buildRunForProject = (project: Project): Run => ({
   status: "planned",
   runnerTarget: "local",
   activePhase: "ready",
+  currentCommand: undefined,
+  commandStatus: "idle",
+  progressSteps: buildProgressSteps("ready"),
+  changeSummary: emptyChangeSummary,
+  agentActivities: buildAgentActivities(project, "Hermes"),
+  browserPreview: buildBrowserPreview(),
   logs: [
     {
       id: `log-${project.id}-start`,
@@ -395,10 +479,12 @@ const buildHermesChatPrompt = (project: Project, run: Run, userPrompt: string) =
 const sanitizeRunForStorage = (run: Run): Run => ({
   ...run,
   hermesSessionId: undefined,
+  currentCommand: run.currentCommand ? redactSensitiveText(run.currentCommand) : undefined,
   outputPreview: redactSensitiveText(run.outputPreview),
   sessionTranscript: redactSensitiveText(run.sessionTranscript ?? ""),
   logs: run.logs.map((log) => ({ ...log, message: redactSensitiveText(log.message) })),
   messages: (run.messages ?? []).map((message) => ({ ...message, content: redactSensitiveText(message.content) })),
+  agentActivities: (run.agentActivities ?? []).map((agent) => ({ ...agent, detail: redactSensitiveText(agent.detail) })),
 });
 
 const validStatuses: Status[] = ["idle", "planned", "running", "blocked", "needs_approval", "completed", "failed"];
@@ -428,6 +514,14 @@ const normalizeRun = (run: Run): Run => ({
   ...run,
   runnerTarget: run.runnerTarget ?? "local",
   activePhase: run.activePhase ?? deriveExecutionPhaseFromStatus(run.status),
+  currentCommand: run.currentCommand,
+  commandStatus: run.commandStatus ?? "idle",
+  progressSteps: Array.isArray(run.progressSteps)
+    ? run.progressSteps
+    : buildProgressSteps(run.activePhase ?? deriveExecutionPhaseFromStatus(run.status), run.commandStatus ?? "idle"),
+  changeSummary: run.changeSummary ?? emptyChangeSummary,
+  agentActivities: Array.isArray(run.agentActivities) ? run.agentActivities : buildAgentActivities(undefined, run.activeRoleName),
+  browserPreview: run.browserPreview ?? buildBrowserPreview(),
   messages: Array.isArray(run.messages) ? run.messages.map(normalizeChatMessage) : [],
 });
 
@@ -753,6 +847,8 @@ export const useQarkoStore = create<QarkoState>()(
               ...currentRun,
               status: "needs_approval",
               activePhase: "waiting_for_approval",
+              commandStatus: "idle",
+              progressSteps: buildProgressSteps("waiting_for_approval", "idle"),
             };
             return {
             projects: current.projects.map((item) =>
@@ -849,6 +945,14 @@ export const useQarkoStore = create<QarkoState>()(
             modelName: current.hermesConnection.modelName || currentRun.modelName,
             status: "running",
             activePhase: currentRun.hermesSessionId ? "resuming_session" : "starting",
+            currentCommand: buildHermesCommandLabel(current.hermesConnection.modelName),
+            commandStatus: "running",
+            progressSteps: buildProgressSteps(currentRun.hermesSessionId ? "resuming_session" : "starting", "running"),
+            changeSummary: emptyChangeSummary,
+            agentActivities: buildAgentActivities(project, "Hermes").map((agent, index) =>
+              index === 0 ? { ...agent, status: "running", detail: "Hermes CLI 요청 처리 중" } : agent
+            ),
+            browserPreview: buildBrowserPreview(),
             startedAt,
             completedAt: undefined,
             elapsedMs: undefined,
@@ -921,6 +1025,15 @@ export const useQarkoStore = create<QarkoState>()(
               ...currentRun,
               status: result.ok ? "completed" : "failed",
               activePhase: result.ok ? "completed" : "failed",
+              commandStatus: result.ok ? "completed" : "failed",
+              progressSteps: buildProgressSteps(result.ok ? "completed" : "failed", result.ok ? "completed" : "failed"),
+              changeSummary: result.changeSummary ?? currentRun.changeSummary,
+              agentActivities: buildAgentActivities(project, "Hermes").map((agent, index) =>
+                index === 0
+                  ? { ...agent, status: result.ok ? "completed" : "failed", detail: result.ok ? "Hermes 응답 완료" : "Hermes 실행 오류" }
+                  : agent
+              ),
+              browserPreview: buildBrowserPreview(result.workspacePath),
               completedAt,
               elapsedMs,
               outputPreview: safeOutput,
@@ -988,6 +1101,11 @@ export const useQarkoStore = create<QarkoState>()(
               ...currentRun,
               status: "failed",
               activePhase: "failed",
+              commandStatus: "failed",
+              progressSteps: buildProgressSteps("failed", "failed"),
+              agentActivities: buildAgentActivities(project, "Hermes").map((agent, index) =>
+                index === 0 ? { ...agent, status: "failed", detail: "Hermes 실행 오류" } : agent
+              ),
               completedAt,
               elapsedMs,
               hermesSessionId: shouldClearHermesSessionId ? undefined : currentRun.hermesSessionId,

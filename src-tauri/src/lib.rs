@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::fs::File;
@@ -72,6 +73,39 @@ struct CommandResult {
     output: String,
     workspace_path: Option<String>,
     session_id: Option<String>,
+    change_summary: Option<WorkspaceChangeSummary>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceChangeSummary {
+    files_changed: usize,
+    insertions: usize,
+    deletions: usize,
+    files: Vec<WorkspaceChangedFile>,
+    truncated: bool,
+    files_truncated: bool,
+    file_limit: usize,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceChangedFile {
+    path: String,
+    status: String,
+    insertions: usize,
+    deletions: usize,
+}
+
+#[derive(Clone)]
+struct WorkspaceFileSnapshot {
+    lines: usize,
+    hash: String,
+}
+
+struct WorkspaceChangeSnapshot {
+    files: HashMap<String, WorkspaceFileSnapshot>,
+    truncated: bool,
 }
 
 #[derive(Serialize)]
@@ -177,6 +211,175 @@ fn canonical_path_text(path: &PathBuf) -> String {
         .unwrap_or_else(|_| path.to_path_buf())
         .to_string_lossy()
         .to_string()
+}
+
+fn should_skip_change_summary_path(path: &Path) -> bool {
+    path.components().any(|component| {
+        let value = component.as_os_str().to_string_lossy().to_ascii_lowercase();
+        matches!(
+            value.as_str(),
+            ".git" | "node_modules" | "target" | "dist" | "build" | ".next" | ".venv" | "__pycache__"
+        )
+    })
+}
+
+const WORKSPACE_CHANGE_FILE_LIMIT: usize = 5000;
+const WORKSPACE_CHANGED_FILE_DISPLAY_LIMIT: usize = 50;
+
+fn snapshot_workspace_changes(root: &Path) -> WorkspaceChangeSnapshot {
+    fn visit(
+        root: &Path,
+        canonical_root: &Path,
+        dir: &Path,
+        files: &mut HashMap<String, WorkspaceFileSnapshot>,
+        visited: &mut usize,
+    ) {
+        if *visited >= WORKSPACE_CHANGE_FILE_LIMIT {
+            return;
+        }
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            if *visited >= WORKSPACE_CHANGE_FILE_LIMIT {
+                return;
+            }
+            let path = entry.path();
+            if should_skip_change_summary_path(&path) {
+                continue;
+            }
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(_) => continue,
+            };
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                let Ok(canonical_dir) = fs::canonicalize(&path) else {
+                    continue;
+                };
+                if !canonical_dir.starts_with(canonical_root) {
+                    continue;
+                }
+                visit(root, canonical_root, &path, files, visited);
+                continue;
+            }
+            if !metadata.is_file() || metadata.len() > 1_000_000 {
+                continue;
+            }
+            *visited += 1;
+            let Ok(bytes) = fs::read(&path) else {
+                continue;
+            };
+            if bytes.contains(&0) {
+                continue;
+            }
+            let relative_path = path
+                .strip_prefix(root)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            let line_count = String::from_utf8_lossy(&bytes).lines().count();
+            let hash = format!("{:X}", Sha256::digest(&bytes));
+            files.insert(
+                relative_path,
+                WorkspaceFileSnapshot {
+                    lines: line_count,
+                    hash,
+                },
+            );
+        }
+    }
+
+    let mut files = HashMap::new();
+    let canonical_root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let mut visited = 0;
+    visit(root, &canonical_root, root, &mut files, &mut visited);
+    WorkspaceChangeSnapshot {
+        files,
+        truncated: visited >= WORKSPACE_CHANGE_FILE_LIMIT,
+    }
+}
+
+fn summarize_workspace_changes(
+    before: &WorkspaceChangeSnapshot,
+    after: &WorkspaceChangeSnapshot,
+) -> WorkspaceChangeSummary {
+    let mut files_changed = 0;
+    let mut insertions = 0;
+    let mut deletions = 0;
+    let mut files = Vec::new();
+    let paths = before
+        .files
+        .keys()
+        .chain(after.files.keys())
+        .cloned()
+        .collect::<HashSet<_>>();
+
+    for path in paths {
+        match (before.files.get(&path), after.files.get(&path)) {
+            (Some(previous), Some(current)) if previous.hash == current.hash => {}
+            (Some(previous), Some(current)) => {
+                files_changed += 1;
+                let mut file_insertions = 0;
+                let mut file_deletions = 0;
+                if current.lines > previous.lines {
+                    file_insertions = current.lines - previous.lines;
+                    insertions += file_insertions;
+                } else if previous.lines > current.lines {
+                    file_deletions = previous.lines - current.lines;
+                    deletions += file_deletions;
+                } else {
+                    file_insertions = 1;
+                    file_deletions = 1;
+                    insertions += 1;
+                    deletions += 1;
+                }
+                files.push(WorkspaceChangedFile {
+                    path,
+                    status: "modified".to_string(),
+                    insertions: file_insertions,
+                    deletions: file_deletions,
+                });
+            }
+            (None, Some(current)) => {
+                files_changed += 1;
+                insertions += current.lines;
+                files.push(WorkspaceChangedFile {
+                    path,
+                    status: "added".to_string(),
+                    insertions: current.lines,
+                    deletions: 0,
+                });
+            }
+            (Some(previous), None) => {
+                files_changed += 1;
+                deletions += previous.lines;
+                files.push(WorkspaceChangedFile {
+                    path,
+                    status: "deleted".to_string(),
+                    insertions: 0,
+                    deletions: previous.lines,
+                });
+            }
+            (None, None) => {}
+        }
+    }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    let files_truncated = files.len() > WORKSPACE_CHANGED_FILE_DISPLAY_LIMIT;
+    files.truncate(WORKSPACE_CHANGED_FILE_DISPLAY_LIMIT);
+
+    WorkspaceChangeSummary {
+        files_changed,
+        insertions,
+        deletions,
+        files,
+        truncated: before.truncated || after.truncated,
+        files_truncated,
+        file_limit: WORKSPACE_CHANGE_FILE_LIMIT,
+    }
 }
 
 fn file_sha256_hex(path: &PathBuf) -> Result<String, String> {
@@ -363,6 +566,7 @@ fn run_hidden_command(command: &mut Command) -> Result<CommandResult, String> {
         output: combined,
         workspace_path: None,
         session_id: None,
+        change_summary: None,
     })
 }
 
@@ -387,6 +591,7 @@ fn command_result_from_output(status_success: bool, stdout: &[u8], stderr: &[u8]
         output: combined,
         workspace_path: None,
         session_id,
+        change_summary: None,
     }
 }
 
@@ -447,6 +652,7 @@ fn run_hidden_command_with_timeout(
                 output: "Hermes did not finish within 3 minutes. Check auth, network, and model settings, then try again.".to_string(),
                 workspace_path: None,
                 session_id: None,
+                change_summary: None,
             });
         }
         thread::sleep(Duration::from_millis(250));
@@ -635,6 +841,7 @@ fn run_optional_hermes_command(hermes: &PathBuf, args: &[&str]) -> CommandResult
         output: String::new(),
         workspace_path: None,
         session_id: None,
+        change_summary: None,
     })
 }
 
@@ -746,6 +953,7 @@ fn open_hermes_setup_terminal(section: Option<String>) -> Result<CommandResult, 
         output: "Visible terminal launched for hermes setup.".to_string(),
         workspace_path: None,
         session_id: None,
+        change_summary: None,
     })
 }
 
@@ -812,6 +1020,7 @@ fn configure_hermes_tool_preset(request: HermesToolPresetRequest) -> Result<Comm
                 output: outputs.join("\n"),
                 workspace_path: None,
                 session_id: None,
+                change_summary: None,
             });
         }
     }
@@ -827,6 +1036,7 @@ fn configure_hermes_tool_preset(request: HermesToolPresetRequest) -> Result<Comm
                 output: outputs.join("\n"),
                 workspace_path: None,
                 session_id: None,
+                change_summary: None,
             });
         }
     }
@@ -846,6 +1056,7 @@ fn configure_hermes_tool_preset(request: HermesToolPresetRequest) -> Result<Comm
         output: outputs.join("\n"),
         workspace_path: None,
         session_id: None,
+        change_summary: None,
     })
 }
 
@@ -868,6 +1079,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             output: outputs.join("\n"),
             workspace_path: None,
             session_id: None,
+            change_summary: None,
         });
     }
 
@@ -888,6 +1100,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
                 output: outputs.join("\n"),
                 workspace_path: None,
                 session_id: None,
+                change_summary: None,
             });
         }
     }
@@ -906,6 +1119,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             output: outputs.join("\n"),
             workspace_path: None,
             session_id: None,
+            change_summary: None,
         });
     }
 
@@ -922,6 +1136,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             output: outputs.join("\n"),
             workspace_path: None,
             session_id: None,
+            change_summary: None,
         });
     }
 
@@ -935,6 +1150,7 @@ fn configure_hermes(request: HermesSetupRequest) -> Result<CommandResult, String
             .join("\n"),
         workspace_path: None,
         session_id: None,
+        change_summary: None,
     })
 }
 
@@ -994,6 +1210,7 @@ fn login_hermes_provider(request: HermesLoginRequest) -> Result<CommandResult, S
         },
         workspace_path: None,
         session_id: None,
+        change_summary: None,
     })
 }
 
@@ -1021,6 +1238,7 @@ fn open_hermes_login_terminal(request: HermesLoginRequest) -> Result<CommandResu
         output: "Visible fallback launched for hermes auth add --type oauth.".to_string(),
         workspace_path: None,
         session_id: None,
+        change_summary: None,
     })
 }
 
@@ -1039,6 +1257,7 @@ fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult
             output: error,
             workspace_path: None,
             session_id: None,
+            change_summary: None,
         });
     let doctor = run_optional_hermes_command(&hermes, &["doctor"]);
     let combined = [
@@ -1071,6 +1290,7 @@ fn check_hermes_auth_status(request: HermesLoginRequest) -> Result<CommandResult
         output: redact_sensitive_output(combined),
         workspace_path: None,
         session_id: None,
+        change_summary: None,
     })
 }
 
@@ -1097,6 +1317,7 @@ fn open_qarko_workspace_path(path: String) -> Result<CommandResult, String> {
         output: canonical_path_text(&workspace_path),
         workspace_path: Some(canonical_path_text(&workspace_path)),
         session_id: None,
+        change_summary: None,
     })
 }
 
@@ -1125,6 +1346,7 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
     let resume_session_id = validate_hermes_session_id(request.session_id.as_deref())?;
 
     let workspace_dir = qarko_workspace_dir(request.project_id.clone(), request.run_id.clone())?;
+    let before_changes = snapshot_workspace_changes(&workspace_dir);
     let runtime_dir = qarko_local_app_dir().join("runtime");
     fs::create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
     let now_nanos = SystemTime::now()
@@ -1199,6 +1421,7 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
     let result = run_hidden_command_with_timeout(&mut command, Duration::from_secs(180));
     let _ = fs::remove_file(prompt_path);
     let result = result?;
+    let change_summary = summarize_workspace_changes(&before_changes, &snapshot_workspace_changes(&workspace_dir));
     if result.ok {
         let session_id = result.session_id.clone();
         Ok(CommandResult {
@@ -1210,6 +1433,7 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
             ),
             workspace_path: Some(canonical_path_text(&workspace_dir)),
             session_id,
+            change_summary: Some(change_summary),
         })
     } else {
         let session_id = result.session_id.clone();
@@ -1219,6 +1443,7 @@ fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, St
             output: result.output,
             workspace_path: Some(canonical_path_text(&workspace_dir)),
             session_id,
+            change_summary: Some(change_summary),
         })
     }
 }
@@ -1269,5 +1494,41 @@ mod tests {
         assert!(!output.contains("secret-session"));
         assert!(output.contains("[redacted sensitive output]"));
         assert!(output.contains("normal line"));
+    }
+
+    #[test]
+    fn summarize_workspace_changes_counts_same_line_modifications() {
+        let mut before = HashMap::new();
+        before.insert(
+            "note.md".to_string(),
+            WorkspaceFileSnapshot {
+                lines: 1,
+                hash: "before".to_string(),
+            },
+        );
+        let mut after = HashMap::new();
+        after.insert(
+            "note.md".to_string(),
+            WorkspaceFileSnapshot {
+                lines: 1,
+                hash: "after".to_string(),
+            },
+        );
+
+        let summary = summarize_workspace_changes(
+            &WorkspaceChangeSnapshot {
+                files: before,
+                truncated: false,
+            },
+            &WorkspaceChangeSnapshot {
+                files: after,
+                truncated: false,
+            },
+        );
+
+        assert_eq!(summary.files_changed, 1);
+        assert_eq!(summary.insertions, 1);
+        assert_eq!(summary.deletions, 1);
+        assert_eq!(summary.files[0].status, "modified");
     }
 }

@@ -38,12 +38,28 @@ export interface HermesGuidedSetup {
   endpoint: string;
 }
 
+export interface HermesWorkspaceChangeSummary {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  truncated?: boolean;
+  filesTruncated?: boolean;
+  fileLimit?: number;
+  files?: Array<{
+    path: string;
+    status: "added" | "modified" | "deleted";
+    insertions: number;
+    deletions: number;
+  }>;
+}
+
 export interface HermesCommandResult {
   ok: boolean;
   message: string;
   output: string;
   workspacePath?: string;
   sessionId?: string;
+  changeSummary?: HermesWorkspaceChangeSummary;
 }
 
 export interface HermesHealthReport {
@@ -232,6 +248,7 @@ export const runHermesWorkbenchStep = async (request: HermesOneShotRequest): Pro
       ok: true,
       message: "Browser preview generated a beta draft instead of running Hermes.",
       workspacePath: "browser-preview://workspace",
+      changeSummary: { filesChanged: 1, insertions: 5, deletions: 0 },
       output: [
         "## Hermes execution draft",
         "",

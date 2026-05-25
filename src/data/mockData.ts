@@ -286,6 +286,22 @@ export const activeRun: Run = {
   status: "running",
   runnerTarget: "local",
   activePhase: "running",
+  currentCommand: "hermes chat -q --model Hermes Mock",
+  commandStatus: "running",
+  progressSteps: [
+    { id: "request", label: "요청 확인", status: "completed" },
+    { id: "session", label: "프로젝트 세션 준비", status: "completed" },
+    { id: "hermes", label: "Hermes CLI 실행", status: "running" },
+    { id: "outputs", label: "출력 및 작업 폴더 정리", status: "pending" },
+    { id: "review", label: "변경 사항 검토", status: "pending" },
+  ],
+  changeSummary: { filesChanged: 0, insertions: 0, deletions: 0 },
+  agentActivities: [
+    { id: "chief", name: "Chief of Staff", status: "completed", detail: "작업 목표 정리 완료" },
+    { id: "researcher", name: "Researcher", status: "running", detail: "Hermes CLI 실행 중" },
+    { id: "reviewer", name: "QA / Reviewer", status: "needs_approval", detail: "변경 검토 대기" },
+  ],
+  browserPreview: { enabled: false, label: "브라우저 미연결" },
   stepCount: 3,
   outputPreview: "Hermes가 요청을 읽고 작업 범위, 필요한 파일, 승인 조건을 정리하고 있습니다.",
   sessionTranscript:

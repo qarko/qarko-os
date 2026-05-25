@@ -2,19 +2,24 @@ import {
   Activity,
   Bot,
   CheckCircle2,
+  Circle,
+  Clock3,
+  Code2,
   FileText,
   FolderOpen,
+  Globe2,
   MessageSquarePlus,
   Play,
   Settings2,
   ShieldAlert,
   SlidersHorizontal,
+  TerminalSquare,
   X,
 } from "lucide-react";
 import { useState } from "react";
 import { openQarkoWorkspacePath } from "../../adapters/hermesDesktop";
 import { useQarkoStore } from "../../store/useQarkoStore";
-import type { ExecutionPhase, ReviewNote, Run } from "../../types/qarko";
+import type { ExecutionPhase, ReviewNote, Run, RunProgressStep } from "../../types/qarko";
 import { StatusBadge } from "../ui/StatusBadge";
 
 type LiveTab = "status" | "log" | "artifacts" | "approval" | "notes" | "hermes";
@@ -51,6 +56,13 @@ const executionPhaseLabel: Record<ExecutionPhase, string> = {
   cancelled: "취소됨",
 };
 
+const progressIcon = (step: RunProgressStep) => {
+  if (step.status === "completed") return <CheckCircle2 className="h-4 w-4 text-moss" />;
+  if (step.status === "running") return <Clock3 className="h-4 w-4 text-signal" />;
+  if (step.status === "failed" || step.status === "blocked") return <ShieldAlert className="h-4 w-4 text-caution" />;
+  return <Circle className="h-4 w-4 text-stone-400" />;
+};
+
 const formatElapsed = (elapsedMs: number) => {
   if (elapsedMs < 1000) return `${elapsedMs}ms`;
   const totalSeconds = Math.floor(elapsedMs / 1000);
@@ -69,14 +81,7 @@ const getRunTimeLabel = (run: Run) => {
     if (Number.isFinite(startedAtMs)) return `진행 중 (${formatElapsed(Math.max(Date.now() - startedAtMs, 0))})`;
   }
   if (run.activePhase === "ready" || run.activePhase === "queued") return "대기 중";
-  if (
-    run.activePhase === "starting" ||
-    run.activePhase === "resuming_session" ||
-    run.activePhase === "running" ||
-    run.activePhase === "receiving_output"
-  ) {
-    return "진행 중";
-  }
+  if (["starting", "resuming_session", "running", "receiving_output"].includes(run.activePhase)) return "진행 중";
   if (run.activePhase === "waiting_for_approval") return "승인 대기";
   if (run.activePhase === "completed") return "완료";
   if (run.activePhase === "failed") return "오류";
@@ -144,6 +149,8 @@ export function ExecutionPanel() {
     }
   };
 
+  const latestWorkspacePath = projectArtifacts.find((artifact) => artifact.path)?.path;
+  const changeSummary = activeRun.changeSummary;
   const summaryRows = [
     ["Phase", executionPhaseLabel[activeRun.activePhase]],
     ["Time", getRunTimeLabel(activeRun)],
@@ -152,9 +159,9 @@ export function ExecutionPanel() {
   ];
 
   return (
-    <aside className="fixed bottom-0 right-0 top-0 z-40 flex pointer-events-none">
+    <aside className="pointer-events-none fixed bottom-0 right-0 top-0 z-40 flex">
       {activeTab ? (
-        <section className="pointer-events-auto flex w-[380px] max-w-[calc(100vw-56px)] flex-col border-l border-line bg-[#fbfbf8] shadow-xl">
+        <section className="pointer-events-auto flex w-[390px] max-w-[calc(100vw-56px)] flex-col border-l border-line bg-[#fbfbf8] shadow-xl">
           <div className="border-b border-line p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -182,14 +189,57 @@ export function ExecutionPanel() {
           <div className="min-h-0 flex-1 overflow-y-auto p-4 thin-scrollbar">
             {activeTab === "status" ? (
               <div className="space-y-4">
-                <div className="rounded-md border border-line bg-white p-4 shadow-sm">
-                  <div className="mb-2 flex items-center gap-2">
+                <section className="rounded-md border border-line bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex items-center gap-2">
                     <Activity className="h-4 w-4 text-signal" />
-                    <h3 className="text-sm font-semibold text-ink">현재 실행 상태</h3>
+                    <h3 className="text-sm font-semibold text-ink">진행 상황</h3>
                   </div>
-                  <p className="text-sm leading-6 text-stone-700">{executionPhaseLabel[activeRun.activePhase]}</p>
-                  <p className="mt-1 text-xs text-moss">{getRunTimeLabel(activeRun)}</p>
-                </div>
+                  <div className="space-y-2">
+                    {activeRun.progressSteps.map((step) => (
+                      <div key={step.id} className="flex items-center gap-2 text-sm text-stone-700">
+                        {progressIcon(step)}
+                        <span className={step.status === "running" ? "font-semibold text-ink" : ""}>{step.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="rounded-md border border-line bg-white p-4 shadow-sm">
+                  <div className="mb-2 flex items-center gap-2">
+                    <TerminalSquare className="h-4 w-4 text-moss" />
+                    <h3 className="text-sm font-semibold text-ink">실행 중인 명령</h3>
+                  </div>
+                  <p className="break-all rounded-md bg-panel px-3 py-2 font-mono text-xs text-ink">
+                    {activeRun.currentCommand || "대기 중"}
+                  </p>
+                </section>
+
+                <section className="rounded-md border border-line bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Bot className="h-4 w-4 text-signal" />
+                    <h3 className="text-sm font-semibold text-ink">서브에이전트</h3>
+                  </div>
+                  <div className="space-y-2">
+                    {activeRun.agentActivities.map((agent) => (
+                      <div key={agent.id} className="flex items-start justify-between gap-3 text-xs">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-ink">{agent.name}</p>
+                          <p className="line-clamp-2 text-stone-600">{agent.detail}</p>
+                        </div>
+                        <StatusBadge tone={agent.status === "failed" ? "failed" : agent.status === "running" ? "connected" : "not_connected"} label={agent.status} />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="rounded-md border border-line bg-white p-4 shadow-sm">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Globe2 className="h-4 w-4 text-moss" />
+                    <h3 className="text-sm font-semibold text-ink">브라우저</h3>
+                  </div>
+                  <p className="text-xs leading-5 text-stone-600">{activeRun.browserPreview.label}</p>
+                </section>
+
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-normal text-moss">최근 로그</p>
                   {recentLogs.length > 0 ? (
@@ -237,22 +287,53 @@ export function ExecutionPanel() {
 
             {activeTab === "artifacts" ? (
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-ink">결과와 작업 폴더</h3>
+                <h3 className="text-sm font-semibold text-ink">산출물</h3>
                 <div className="rounded-md border border-line bg-white p-4 shadow-sm">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-normal text-moss">Output preview</p>
                   <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700">
                     {activeRun.outputPreview || "Hermes 실행 결과가 이곳에 표시됩니다."}
                   </p>
                 </div>
+                <div className="rounded-md border border-line bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-xs font-semibold uppercase tracking-normal text-moss">Changed files</p>
+                    <span className="text-xs font-semibold text-ink">
+                      {changeSummary.filesChanged}개 +{changeSummary.insertions} -{changeSummary.deletions}
+                    </span>
+                  </div>
+                  {changeSummary.files?.length ? (
+                    <div className="space-y-2">
+                      {changeSummary.files.map((file) => (
+                        <div key={`${file.status}-${file.path}`} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 text-xs">
+                          <span className="rounded border border-line bg-panel px-1.5 py-0.5 font-semibold text-moss">{file.status}</span>
+                          <span className="min-w-0 truncate font-mono text-ink">{file.path}</span>
+                          <span className="shrink-0 text-stone-600">
+                            +{file.insertions} -{file.deletions}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs leading-5 text-stone-600">아직 감지된 변경 파일이 없습니다.</p>
+                  )}
+                  {changeSummary.filesTruncated ? (
+                    <p className="mt-3 text-xs leading-5 text-caution">변경 파일이 많아 처음 50개만 표시합니다.</p>
+                  ) : null}
+                  {changeSummary.truncated ? (
+                    <p className="mt-2 text-xs leading-5 text-caution">
+                      작업 폴더 파일이 {changeSummary.fileLimit ?? 5000}개를 넘어 변경 요약이 일부만 계산되었습니다.
+                    </p>
+                  ) : null}
+                </div>
                 {workspaceOpenMessage ? (
                   <p className="rounded-md border border-line bg-panel p-3 text-xs leading-5 text-stone-700">{workspaceOpenMessage}</p>
                 ) : null}
                 {projectArtifacts.length === 0 ? (
                   <p className="rounded-md border border-dashed border-line bg-white p-4 text-xs leading-5 text-stone-600">
-                    아직 이 프로젝트의 산출물이 없습니다.
+                    아직 이 프로젝트의 출력물이 없습니다.
                   </p>
                 ) : null}
-                {projectArtifacts.slice(0, 5).map((artifact) => (
+                {projectArtifacts.slice(0, 8).map((artifact) => (
                   <article key={artifact.id} className="rounded-md border border-line bg-white p-3 shadow-sm">
                     <p className="text-sm font-semibold text-ink">{artifact.title}</p>
                     <p className="mt-1 text-xs leading-5 text-stone-600">{artifact.summary}</p>
@@ -317,7 +398,7 @@ export function ExecutionPanel() {
                     <textarea
                       value={noteMessage}
                       onChange={(event) => setNoteMessage(event.target.value)}
-                      placeholder="막힌 부분이나 바꾸고 싶은 점을 적어주세요."
+                      placeholder="막히는 부분이나 바꾸고 싶은 점을 적어주세요."
                       className="min-h-24 rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-signal"
                     />
                   </label>
@@ -365,11 +446,28 @@ export function ExecutionPanel() {
             ) : null}
           </div>
 
-          <div className="border-t border-line p-4">
-            <button onClick={runNextStep} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss">
-              <Play className="h-4 w-4" />
-              현재 단계 실행
-            </button>
+          <div className="border-t border-line bg-[#fbfbf8] p-4">
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-line bg-white px-3 py-2 text-xs">
+              <span className="min-w-0 truncate font-semibold text-ink">
+                {changeSummary.filesChanged}개 파일 변경됨
+                <span className="ml-2 text-moss">+{changeSummary.insertions}</span>
+                <span className="ml-1 text-caution">-{changeSummary.deletions}</span>
+              </span>
+              <button onClick={() => setActiveTab("artifacts")} className="shrink-0 font-semibold text-ink hover:text-signal">
+                변경 사항 검토
+              </button>
+            </div>
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <button onClick={runNextStep} className="inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-moss">
+                <Play className="h-4 w-4" />
+                현재 단계 실행
+              </button>
+              {latestWorkspacePath ? (
+                <button onClick={() => openWorkspace(latestWorkspacePath)} className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-line bg-white text-ink hover:bg-panel" aria-label="작업 폴더 열기">
+                  <Code2 className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
           </div>
         </section>
       ) : null}
@@ -380,8 +478,9 @@ export function ExecutionPanel() {
           const selected = activeTab === tab.id;
           const hasSignal =
             (tab.id === "approval" && Boolean(pendingApproval)) ||
-            (tab.id === "artifacts" && projectArtifacts.length > 0) ||
-            (tab.id === "notes" && reviewNotes.length > 0);
+            (tab.id === "artifacts" && (projectArtifacts.length > 0 || activeRun.changeSummary.filesChanged > 0)) ||
+            (tab.id === "notes" && reviewNotes.length > 0) ||
+            (tab.id === "status" && activeRun.commandStatus === "running");
           return (
             <button
               key={tab.id}

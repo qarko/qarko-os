@@ -17,6 +17,8 @@ export type HermesStatus = "not_configured" | "testing" | "connected" | "error";
 export type HermesInstallStatus = "unknown" | "installed" | "missing" | "installing" | "error";
 export type HermesToolPreset = "safe" | "work" | "developer" | "automation";
 export type RunnerTarget = "local";
+export type RunCommandStatus = "idle" | "running" | "completed" | "failed";
+export type RunProgressStepStatus = "completed" | "running" | "pending" | "blocked" | "failed";
 export type ExecutionPhase =
   | "ready"
   | "queued"
@@ -120,6 +122,42 @@ export interface ChatMessage {
   status: Status;
 }
 
+export interface RunProgressStep {
+  id: string;
+  label: string;
+  status: RunProgressStepStatus;
+}
+
+export interface RunChangeSummary {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  files?: RunChangedFile[];
+  truncated?: boolean;
+  filesTruncated?: boolean;
+  fileLimit?: number;
+}
+
+export interface RunChangedFile {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  insertions: number;
+  deletions: number;
+}
+
+export interface RunAgentActivity {
+  id: string;
+  name: string;
+  status: Status;
+  detail: string;
+}
+
+export interface RunBrowserPreview {
+  enabled: boolean;
+  label: string;
+  url?: string;
+}
+
 export interface Run {
   id: string;
   projectId: string;
@@ -129,6 +167,12 @@ export interface Run {
   status: Status;
   runnerTarget: RunnerTarget;
   activePhase: ExecutionPhase;
+  currentCommand?: string;
+  commandStatus: RunCommandStatus;
+  progressSteps: RunProgressStep[];
+  changeSummary: RunChangeSummary;
+  agentActivities: RunAgentActivity[];
+  browserPreview: RunBrowserPreview;
   logs: LogEntry[];
   messages: ChatMessage[];
   outputPreview: string;

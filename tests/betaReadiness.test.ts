@@ -64,6 +64,63 @@ test("project runs track long-running Hermes status", () => {
   assert.match(storeWithoutLineComments, /const elapsedMs = elapsedMsSince\(currentRun\.startedAt\)/);
 });
 
+test("Codex-style inspector models command, progress, changes, agents, and browser context", () => {
+  const types = readFileSync("src/types/qarko.ts", "utf8");
+  const store = readFileSync("src/store/useQarkoStore.ts", "utf8");
+  const runner = readFileSync("src/adapters/hermesRunner.ts", "utf8");
+  const desktop = readFileSync("src/adapters/hermesDesktop.ts", "utf8");
+  const rust = readFileSync("src-tauri/src/lib.rs", "utf8");
+  const executionPanel = readFileSync("src/components/execution/ExecutionPanel.tsx", "utf8");
+
+  assert.match(types, /export interface RunProgressStep/);
+  assert.match(types, /export interface RunChangeSummary/);
+  assert.match(types, /export interface RunChangedFile/);
+  assert.match(types, /export interface RunAgentActivity/);
+  assert.match(types, /export interface RunBrowserPreview/);
+  assert.match(types, /currentCommand\?: string/);
+  assert.match(types, /commandStatus: RunCommandStatus/);
+  assert.match(types, /progressSteps: RunProgressStep\[\]/);
+  assert.match(types, /changeSummary: RunChangeSummary/);
+  assert.match(types, /agentActivities: RunAgentActivity\[\]/);
+  assert.match(types, /browserPreview: RunBrowserPreview/);
+
+  assert.match(runner + desktop, /HermesWorkspaceChangeSummary/);
+  assert.match(runner + desktop, /changeSummary\?: HermesWorkspaceChangeSummary/);
+  assert.match(rust, /struct WorkspaceChangeSummary/);
+  assert.match(rust, /struct WorkspaceChangedFile/);
+  assert.match(rust, /struct WorkspaceFileSnapshot/);
+  assert.match(rust, /struct WorkspaceChangeSnapshot/);
+  assert.match(rust, /WORKSPACE_CHANGE_FILE_LIMIT/);
+  assert.match(rust, /change_summary: Option<WorkspaceChangeSummary>/);
+  assert.match(rust, /snapshot_workspace_changes/);
+  assert.match(rust, /summarize_workspace_changes/);
+  assert.match(rust, /symlink_metadata/);
+  assert.match(rust, /canonical_dir\.starts_with\(canonical_root\)/);
+  assert.match(rust, /summarize_workspace_changes_counts_same_line_modifications/);
+
+  assert.match(store, /buildProgressSteps/);
+  assert.match(store, /buildAgentActivities/);
+  assert.match(store, /buildBrowserPreview/);
+  assert.match(store, /currentCommand:\s*buildHermesCommandLabel/);
+  assert.match(store, /commandStatus:\s*"running"/);
+  assert.match(store, /changeSummary:\s*result\.changeSummary/);
+
+  assert.match(executionPanel, /progressSteps/);
+  assert.match(executionPanel, /currentCommand/);
+  assert.match(executionPanel, /changeSummary\.filesChanged/);
+  assert.match(executionPanel, /agentActivities/);
+  assert.match(executionPanel, /browserPreview/);
+  assert.match(executionPanel, /변경 사항 검토/);
+  assert.match(executionPanel, /Changed files/);
+  assert.match(executionPanel, /changeSummary\.files\?\.length/);
+  assert.match(executionPanel, /changeSummary\.filesTruncated/);
+  assert.match(executionPanel, /changeSummary\.truncated/);
+  assert.match(executionPanel, /진행 상황/);
+  assert.match(executionPanel, /실행 중인 명령/);
+  assert.match(executionPanel, /서브에이전트/);
+  assert.match(executionPanel, /브라우저/);
+});
+
 test("execution UI shows Korean phase labels and elapsed timing in workbench and side panel", () => {
   const projectView = readFileSync("src/components/projects/ProjectView.tsx", "utf8");
   const executionPanel = readFileSync("src/components/execution/ExecutionPanel.tsx", "utf8");
