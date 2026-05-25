@@ -10,10 +10,10 @@ import {
   openHermesLoginTerminal,
   loginHermesProvider,
   openHermesSetupTerminal,
-  runHermesWorkbenchStep,
   startHermesInstall,
   updateHermesToVerifiedVersion,
 } from "../adapters/hermesDesktop";
+import { runLocalHermesTurn } from "../adapters/hermesRunner";
 import { testHermesConnection } from "../adapters/hermesRuntime";
 import {
   getDefaultSyncEndpoint,
@@ -796,7 +796,7 @@ export const useQarkoStore = create<QarkoState>()(
         });
 
         try {
-          const result = await runHermesWorkbenchStep({
+          const result = await runLocalHermesTurn({
             prompt: buildHermesChatPrompt(project, projectRun, userPrompt),
             modelName: state.hermesConnection.modelName,
             provider: state.hermesSetupProvider,

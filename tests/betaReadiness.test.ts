@@ -54,6 +54,7 @@ test("Runner state is modeled separately from raw Hermes adapter output", () => 
 
 test("next-step execution is wired to real Hermes one-shot generation", () => {
   const desktopAdapter = readFileSync("src/adapters/hermesDesktop.ts", "utf8");
+  const runnerAdapter = readFileSync("src/adapters/hermesRunner.ts", "utf8");
   const rustSource = readFileSync("src-tauri/src/lib.rs", "utf8");
   const storeSource = readFileSync("src/store/useQarkoStore.ts", "utf8");
   const typeSource = readFileSync("src/types/qarko.ts", "utf8");
@@ -76,7 +77,9 @@ test("next-step execution is wired to real Hermes one-shot generation", () => {
   assert.match(desktopAdapter, /workspacePath\?: string/);
   assert.match(desktopAdapter, /sessionId\?: string/);
   assert.match(desktopAdapter, /openQarkoWorkspacePath/);
-  assert.match(storeSource, /await runHermesWorkbenchStep/);
+  assert.match(runnerAdapter, /runHermesWorkbenchStep/);
+  assert.match(storeSource, /await runLocalHermesTurn/);
+  assert.doesNotMatch(storeSource, /await runHermesWorkbenchStep/);
   assert.doesNotMatch(storeSource, /runHermesBusinessStep/);
   assert.match(storeSource, /hasTauriRuntime/);
   assert.match(storeSource, /isBrowserPreview/);
