@@ -31,6 +31,7 @@ export function HermesOnboarding() {
     loginHermesOAuthProvider,
     openHermesLoginFallback,
     openHermesSetupWizard,
+    operationProgress,
     refreshHermesHealth,
     saveHermesGuidedSetup,
     saveHermesToolPreset,
@@ -54,6 +55,7 @@ export function HermesOnboarding() {
     [hermesSetupProvider]
   );
   const hermesInstallPlan = getHermesVerifiedInstallPlan();
+  const authCodePreview = hermesSetupOutput.match(/[A-Z0-9]{4,}[- ][A-Z0-9-]{4,}/i)?.[0] ?? "";
 
   if (!showHermesOnboarding) return null;
 
@@ -80,6 +82,26 @@ export function HermesOnboarding() {
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {operationProgress.status !== "idle" ? (
+          <div className="border-b border-line bg-panel px-5 py-3">
+            <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+              <span className="font-semibold text-ink">{operationProgress.label}</span>
+              <span className="font-mono text-moss">{operationProgress.percent}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-[#0f1115]" role="progressbar" aria-valuenow={operationProgress.percent} aria-valuemin={0} aria-valuemax={100}>
+              <div className="h-full rounded-full bg-signal transition-all" style={{ width: `${operationProgress.percent}%` }} />
+            </div>
+            <p className="mt-2 text-xs leading-5 text-stone-600">{operationProgress.currentStep}</p>
+          </div>
+        ) : null}
+        {authCodePreview ? (
+          <div className="border-b border-signal/30 bg-signal/10 px-5 py-3">
+            <p className="text-xs font-semibold uppercase tracking-normal text-signal">OAuth 인증 코드</p>
+            <p className="mt-1 text-sm leading-6 text-ink">브라우저에서 로그인을 진행한 뒤 상단의 코드를 입력하세요.</p>
+            <p className="mt-2 break-all rounded-md border border-line bg-[#0f1115] px-3 py-2 font-mono text-lg font-bold text-white">{authCodePreview}</p>
+          </div>
+        ) : null}
 
         <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[220px_1fr]">
           <aside className="border-b border-line bg-panel p-4 lg:border-b-0 lg:border-r">

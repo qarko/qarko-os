@@ -121,6 +121,46 @@ test("Codex-style inspector models command, progress, changes, agents, and brows
   assert.match(executionPanel, /브라우저/);
 });
 
+test("Hermes workbench stays terminal-first, dark, and non-blocking for long operations", () => {
+  const types = readFileSync("src/types/qarko.ts", "utf8");
+  const store = readFileSync("src/store/useQarkoStore.ts", "utf8");
+  const dashboard = readFileSync("src/components/dashboard/WorkspaceDashboard.tsx", "utf8");
+  const onboarding = readFileSync("src/components/onboarding/HermesOnboarding.tsx", "utf8");
+  const appShell = readFileSync("src/components/layout/AppShell.tsx", "utf8");
+  const css = readFileSync("src/index.css", "utf8");
+  const rust = readFileSync("src-tauri/src/lib.rs", "utf8");
+
+  assert.match(types, /export interface OperationProgress/);
+  assert.match(types, /terminalLines: TerminalLine\[\]/);
+  assert.match(types, /export interface TerminalLine/);
+  assert.match(store, /operationProgress: idleOperationProgress/);
+  assert.match(store, /startOperationProgress/);
+  assert.match(store, /finishOperationProgress/);
+  assert.match(store, /appendTerminalLine/);
+  assert.match(store, /terminalLines:\s*\[/);
+  assert.match(store, /slice\(-240\)/);
+  assert.match(store, /partialize:[\s\S]*operationProgress:\s*undefined/);
+
+  assert.match(dashboard, /TerminalTranscript/);
+  assert.match(dashboard, /activeRun\.terminalLines/);
+  assert.match(dashboard, /font-mono/);
+  assert.match(dashboard, /마지막 출력/);
+  assert.match(dashboard, /Hermes CLI/);
+
+  assert.match(onboarding, /operationProgress/);
+  assert.match(onboarding, /progressbar/);
+  assert.match(onboarding, /authCodePreview/);
+  assert.match(onboarding, /브라우저에서/);
+  assert.match(onboarding, /상단의 코드/);
+
+  assert.match(appShell + css, /bg-\[#0f1115\]/);
+  assert.match(css, /color-scheme:\s*dark/);
+
+  assert.match(rust, /async fn install_hermes/);
+  assert.match(rust, /spawn_blocking/);
+  assert.match(rust, /async fn run_hermes_oneshot/);
+});
+
 test("execution UI shows Korean phase labels and elapsed timing in workbench and side panel", () => {
   const projectView = readFileSync("src/components/projects/ProjectView.tsx", "utf8");
   const executionPanel = readFileSync("src/components/execution/ExecutionPanel.tsx", "utf8");

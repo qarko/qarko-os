@@ -345,6 +345,10 @@ export const activeRun: Run = {
       status: "needs_approval",
     },
   ],
+  terminalLines: [
+    { id: "terminal-1", timestamp: "13:04:00", stream: "system", text: "hermes chat -q --model Hermes Mock", status: "running" },
+    { id: "terminal-2", timestamp: "13:06:00", stream: "hermes", text: "Reading project context and preparing the next action.", status: "running" },
+  ],
 };
 
 export const plugins: Plugin[] = [

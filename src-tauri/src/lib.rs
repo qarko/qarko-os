@@ -712,56 +712,66 @@ fn hermes_status() -> HermesStatus {
 }
 
 #[tauri::command]
-fn install_hermes() -> Result<String, String> {
-    let _guard = HermesInstallGuard::acquire()?;
-    let result = run_hidden_command(Command::new("powershell.exe").args([
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        &powershell_install_script(),
-    ]))?;
-    if result.ok {
-        write_hermes_verified_marker()?;
-    }
+async fn install_hermes() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let _guard = HermesInstallGuard::acquire()?;
+        let script = powershell_install_script();
+        let result = run_hidden_command(Command::new("powershell.exe").args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script.as_str(),
+        ]))?;
+        if result.ok {
+            write_hermes_verified_marker()?;
+        }
 
-    if result.ok {
-        Ok("Hermes installation is complete. Continue with model setup.".to_string())
-    } else {
-        Err(if result.output.is_empty() {
-            result.message
+        if result.ok {
+            Ok("Hermes installation is complete. Continue with model setup.".to_string())
         } else {
-            result.output
-        })
-    }
+            Err(if result.output.is_empty() {
+                result.message
+            } else {
+                result.output
+            })
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-fn update_hermes_verified() -> Result<String, String> {
-    let _guard = HermesInstallGuard::acquire()?;
-    let result = run_hidden_command(Command::new("powershell.exe").args([
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        &powershell_install_script(),
-    ]))?;
-    if result.ok {
-        write_hermes_verified_marker()?;
-    }
+async fn update_hermes_verified() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let _guard = HermesInstallGuard::acquire()?;
+        let script = powershell_install_script();
+        let result = run_hidden_command(Command::new("powershell.exe").args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script.as_str(),
+        ]))?;
+        if result.ok {
+            write_hermes_verified_marker()?;
+        }
 
-    if result.ok {
-        Ok(
-            "Hermes was repaired/updated to the QARKO verified version. Check model setup again."
-                .to_string(),
-        )
-    } else {
-        Err(if result.output.is_empty() {
-            result.message
+        if result.ok {
+            Ok(
+                "Hermes was repaired/updated to the QARKO verified version. Check model setup again."
+                    .to_string(),
+            )
         } else {
-            result.output
-        })
-    }
+            Err(if result.output.is_empty() {
+                result.message
+            } else {
+                result.output
+            })
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn api_key_name_for_provider(provider: &str) -> Option<&'static str> {
@@ -1322,7 +1332,13 @@ fn open_qarko_workspace_path(path: String) -> Result<CommandResult, String> {
 }
 
 #[tauri::command]
-fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, String> {
+async fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_hermes_oneshot_blocking(request))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn run_hermes_oneshot_blocking(request: HermesOneShotRequest) -> Result<CommandResult, String> {
     let hermes = verified_hermes_executable()?;
     let prompt = request.prompt.trim();
     let model = request.model_name.trim();

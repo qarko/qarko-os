@@ -53,6 +53,7 @@ import type {
   NewFeedbackInput,
   NewProjectInput,
   NewReviewNoteInput,
+  OperationProgress,
   Plugin,
   Project,
   ReviewNote,
@@ -64,6 +65,7 @@ import type {
   RunProgressStep,
   Status,
   SyncStatus,
+  TerminalLine,
   WorkspaceSnapshot,
 } from "../types/qarko";
 
@@ -81,6 +83,7 @@ interface QarkoState {
   projectRuns: Record<string, Run>;
   projectPendingPrompts: Record<string, string>;
   pendingPrompt: string;
+  operationProgress: OperationProgress;
   actionNotice: string;
   automationPolicies: typeof automationPolicies;
   syncEndpoint: string;
@@ -153,6 +156,63 @@ const feedbackEaseLabel: Record<FeedbackEntry["ease"], string> = {
   confusing: "헷갈림",
   blocked: "막힘",
 };
+
+const idleOperationProgress: OperationProgress = {
+  id: "operation-idle",
+  label: "대기 중",
+  status: "idle",
+  percent: 0,
+  currentStep: "대기 중",
+  lastMessage: "",
+};
+
+const nowTimeLabel = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+const makeTerminalLine = (
+  stream: TerminalLine["stream"],
+  text: string,
+  status: Status = "running"
+): TerminalLine => ({
+  id: `terminal-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  timestamp: nowTimeLabel(),
+  stream,
+  text: redactSensitiveText(text),
+  status,
+});
+
+const appendTerminalLine = (run: Run, line: TerminalLine): TerminalLine[] => [...(run.terminalLines ?? []), line].slice(-240);
+
+const startOperationProgress = (label: string, currentStep: string): OperationProgress => {
+  const now = new Date().toISOString();
+  return {
+    id: `operation-${Date.now()}`,
+    label,
+    status: "running",
+    percent: 8,
+    currentStep,
+    lastMessage: currentStep,
+    startedAt: now,
+    updatedAt: now,
+  };
+};
+
+const bumpOperationProgress = (progress: OperationProgress, currentStep: string, percent: number): OperationProgress => ({
+  ...progress,
+  status: "running",
+  percent: Math.max(progress.percent, Math.min(percent, 95)),
+  currentStep,
+  lastMessage: currentStep,
+  updatedAt: new Date().toISOString(),
+});
+
+const finishOperationProgress = (progress: OperationProgress, status: "completed" | "error", message: string): OperationProgress => ({
+  ...progress,
+  status,
+  percent: status === "completed" ? 100 : progress.percent,
+  currentStep: message,
+  lastMessage: message,
+  updatedAt: new Date().toISOString(),
+});
 
 const makeProjectName = (idea: string) => {
   const normalized = idea.replace(/\s+/g, " ").trim();
@@ -370,6 +430,7 @@ const emptyRun: Run = {
   agentActivities: buildAgentActivities(undefined, "QARKO OS"),
   browserPreview: buildBrowserPreview(),
   logs: [],
+  terminalLines: [],
   messages: [],
   outputPreview: "프로젝트를 만들고 Hermes를 연결하면 여기에서 실제 작업 결과를 확인할 수 있습니다.",
   stepCount: 0,
@@ -399,6 +460,9 @@ const buildRunForProject = (project: Project): Run => ({
       message: "프로젝트가 생성되었습니다. 이제 채팅에 작업을 입력하면 QARKO OS가 Hermes CLI 실행 흐름으로 연결합니다.",
       status: "planned",
     },
+  ],
+  terminalLines: [
+    makeTerminalLine("system", "QARKO OS가 프로젝트 전용 Hermes CLI 세션을 준비했습니다.", "planned"),
   ],
   messages: [
     {
@@ -483,6 +547,7 @@ const sanitizeRunForStorage = (run: Run): Run => ({
   outputPreview: redactSensitiveText(run.outputPreview),
   sessionTranscript: redactSensitiveText(run.sessionTranscript ?? ""),
   logs: run.logs.map((log) => ({ ...log, message: redactSensitiveText(log.message) })),
+  terminalLines: (run.terminalLines ?? []).map((line) => ({ ...line, text: redactSensitiveText(line.text) })).slice(-240),
   messages: (run.messages ?? []).map((message) => ({ ...message, content: redactSensitiveText(message.content) })),
   agentActivities: (run.agentActivities ?? []).map((agent) => ({ ...agent, detail: redactSensitiveText(agent.detail) })),
 });
@@ -522,6 +587,7 @@ const normalizeRun = (run: Run): Run => ({
   changeSummary: run.changeSummary ?? emptyChangeSummary,
   agentActivities: Array.isArray(run.agentActivities) ? run.agentActivities : buildAgentActivities(undefined, run.activeRoleName),
   browserPreview: run.browserPreview ?? buildBrowserPreview(),
+  terminalLines: Array.isArray(run.terminalLines) ? run.terminalLines.slice(-240) : [],
   messages: Array.isArray(run.messages) ? run.messages.map(normalizeChatMessage) : [],
 });
 
@@ -664,6 +730,7 @@ export const useQarkoStore = create<QarkoState>()(
       projectRuns: {},
       projectPendingPrompts: {},
       pendingPrompt: "",
+      operationProgress: idleOperationProgress,
       actionNotice: "작업을 시작하려면 새 프로젝트를 만들거나 Hermes에게 맡길 일을 입력하세요.",
       automationPolicies,
       syncEndpoint: getDefaultSyncEndpoint(),
@@ -959,6 +1026,11 @@ export const useQarkoStore = create<QarkoState>()(
             stepCount: nextStep,
             messages: [...currentRun.messages, userMessage],
             logs: [...currentRun.logs, userLog, runningLog],
+            terminalLines: [
+              ...appendTerminalLine(currentRun, makeTerminalLine("user", safeUserPrompt, "completed")),
+              makeTerminalLine("system", buildHermesCommandLabel(current.hermesConnection.modelName), "running"),
+              makeTerminalLine("hermes", "Hermes CLI 프로세스가 실행 중입니다. 출력이 도착하면 이 화면에 계속 표시됩니다.", "running"),
+            ].slice(-240),
             outputPreview: "Hermes가 요청을 처리하는 중입니다.",
             sessionTranscript: appendChatTranscript(currentRun, [userMessage]),
           };
@@ -966,6 +1038,7 @@ export const useQarkoStore = create<QarkoState>()(
             projects: current.projects.map((item) => (item.id === project.id ? { ...item, status: "running" } : item)),
             activeRun: runningRun,
             projectRuns: { ...current.projectRuns, [project.id]: runningRun },
+            operationProgress: startOperationProgress("Hermes CLI 실행", "Hermes CLI 프로세스를 백그라운드에서 실행 중"),
             actionNotice: "Hermes CLI 실행을 시작했습니다.",
           };
         });
@@ -1039,6 +1112,10 @@ export const useQarkoStore = create<QarkoState>()(
               outputPreview: safeOutput,
               hermesSessionId: result.sessionId ?? currentRun.hermesSessionId,
               messages: [...currentRun.messages, assistantMessage],
+              terminalLines: [
+                ...appendTerminalLine(currentRun, makeTerminalLine(result.ok ? "hermes" : "stderr", result.ok ? safeOutput : safeResultMessage, result.ok ? "completed" : "failed")),
+                makeTerminalLine("system", result.ok ? "Hermes CLI 실행이 완료되었습니다." : "Hermes CLI 실행이 실패했습니다.", result.ok ? "completed" : "failed"),
+              ].slice(-240),
               sessionTranscript: appendSessionTranscript(currentRun, [
                 {
                   id: `log-${project.id}-${nextStep}-transcript`,
@@ -1070,6 +1147,7 @@ export const useQarkoStore = create<QarkoState>()(
                 : current.artifacts,
               activeRun: current.selectedProjectId === project.id ? completedRun : current.activeRun,
               projectRuns: { ...current.projectRuns, [project.id]: completedRun },
+              operationProgress: finishOperationProgress(current.operationProgress, result.ok ? "completed" : "error", result.ok ? "Hermes CLI 실행 완료" : "Hermes CLI 실행 실패"),
               projectPendingPrompts: nextProjectPendingPrompts,
               pendingPrompt: current.selectedProjectId === project.id ? "" : current.pendingPrompt,
               actionNotice:
@@ -1110,6 +1188,10 @@ export const useQarkoStore = create<QarkoState>()(
               elapsedMs,
               hermesSessionId: shouldClearHermesSessionId ? undefined : currentRun.hermesSessionId,
               messages: [...currentRun.messages, errorMessageEntry],
+              terminalLines: [
+                ...appendTerminalLine(currentRun, makeTerminalLine("stderr", errorMessage, "failed")),
+                makeTerminalLine("system", "Hermes CLI 실행 중 오류가 발생했습니다.", "failed"),
+              ].slice(-240),
               sessionTranscript: appendSessionTranscript(currentRun, [
                 {
                   id: `log-${project.id}-${nextStep}-error-transcript`,
@@ -1136,6 +1218,7 @@ export const useQarkoStore = create<QarkoState>()(
               projects: current.projects.map((item) => (item.id === project.id ? { ...item, status: "failed" } : item)),
               activeRun: current.selectedProjectId === project.id ? failedRun : current.activeRun,
               projectRuns: { ...current.projectRuns, [project.id]: failedRun },
+              operationProgress: finishOperationProgress(current.operationProgress, "error", "Hermes CLI 실행 오류"),
               projectPendingPrompts: nextProjectPendingPrompts,
               pendingPrompt: current.selectedProjectId === project.id ? "" : current.pendingPrompt,
               actionNotice: current.selectedProjectId === project.id ? errorMessage : current.actionNotice,
@@ -1278,49 +1361,65 @@ export const useQarkoStore = create<QarkoState>()(
         }
       },
       installHermesDesktop: async () => {
+        const installProgress = startOperationProgress("Hermes 설치", "설치 스크립트 준비 중");
         set({
           hermesInstallStatus: "installing",
+          operationProgress: installProgress,
           hermesInstallMessage: "QARKO OS 안에서 Hermes를 설치하는 중입니다. 몇 분 정도 걸릴 수 있습니다.",
           actionNotice: "Hermes 공식 Windows 설치 스크립트를 앱 내부에서 실행합니다.",
         });
         try {
+          set((current) => ({
+            operationProgress: bumpOperationProgress(current.operationProgress, "Hermes 설치 파일 다운로드 및 의존성 확인 중", 35),
+          }));
           const message = await startHermesInstall();
           set({
             hermesInstallStatus: "installed",
             hermesInstallMessage: message,
+            operationProgress: finishOperationProgress(installProgress, "completed", "Hermes 설치 완료"),
             actionNotice: "Hermes 설치가 완료되었습니다. 이제 모델 설정을 진행하세요.",
           });
         } catch (error) {
+          const message = error instanceof Error ? error.message : "Hermes 설치를 시작하지 못했습니다.";
           set({
             hermesInstallStatus: "error",
-            hermesInstallMessage: error instanceof Error ? error.message : "Hermes 설치를 시작하지 못했습니다.",
+            hermesInstallMessage: message,
+            operationProgress: finishOperationProgress(installProgress, "error", message),
             actionNotice: "Hermes 설치를 시작하지 못했습니다.",
           });
         }
       },
       updateHermesVerified: async () => {
+        const updateProgress = startOperationProgress("Hermes 업데이트", "검증된 Hermes 버전 확인 중");
         set({
           hermesInstallStatus: "installing",
           hermesUpdateStatus: "updating",
+          operationProgress: updateProgress,
           hermesUpdateMessage: "QARKO 고정 버전으로 Hermes를 업데이트/복구하는 중입니다.",
           hermesInstallMessage: "검증된 Hermes 버전으로 업데이트/복구하는 중입니다.",
           actionNotice: "QARKO 고정 채널의 Hermes 버전으로 업데이트를 시작했습니다.",
         });
         try {
+          set((current) => ({
+            operationProgress: bumpOperationProgress(current.operationProgress, "Hermes 업데이트 스크립트 실행 중", 45),
+          }));
           const message = await updateHermesToVerifiedVersion();
           set({
             hermesInstallStatus: "installed",
             hermesUpdateStatus: "completed",
             hermesUpdateMessage: message,
             hermesInstallMessage: message,
+            operationProgress: finishOperationProgress(updateProgress, "completed", "Hermes 업데이트 완료"),
             actionNotice: "Hermes를 QARKO 고정 버전으로 맞췄습니다.",
           });
         } catch (error) {
+          const message = error instanceof Error ? error.message : "Hermes 업데이트/복구에 실패했습니다.";
           set({
             hermesInstallStatus: "error",
             hermesUpdateStatus: "error",
-            hermesUpdateMessage: error instanceof Error ? error.message : "Hermes 업데이트/복구에 실패했습니다.",
-            hermesInstallMessage: error instanceof Error ? error.message : "Hermes 업데이트/복구에 실패했습니다.",
+            hermesUpdateMessage: message,
+            hermesInstallMessage: message,
+            operationProgress: finishOperationProgress(updateProgress, "error", message),
             actionNotice: "Hermes 업데이트/복구에 실패했습니다.",
           });
         }
@@ -1383,24 +1482,32 @@ export const useQarkoStore = create<QarkoState>()(
       },
       loginHermesOAuthProvider: async () => {
         const state = get();
+        const authProgress = startOperationProgress("Hermes OAuth 로그인", "브라우저 로그인 코드 요청 중");
         set({
           hermesAuthStatus: "running",
+          operationProgress: authProgress,
           hermesAuthMessage: "Hermes guided login을 시작하는 중입니다. 브라우저 로그인이 열리면 완료한 뒤 QARKO OS에서 인증 확인을 누르세요.",
           hermesSetupOutput: "",
           actionNotice: "Hermes OAuth 로그인을 시작했습니다.",
         });
         try {
+          set((current) => ({
+            operationProgress: bumpOperationProgress(current.operationProgress, "브라우저 로그인 페이지와 인증 코드를 기다리는 중", 45),
+          }));
           const result = await loginHermesProvider(state.hermesSetupProvider);
           set({
             hermesAuthStatus: result.ok ? "idle" : "error",
             hermesAuthMessage: result.message,
             hermesSetupOutput: result.output,
+            operationProgress: finishOperationProgress(authProgress, result.ok ? "completed" : "error", result.ok ? "OAuth 로그인 코드 준비 완료" : "OAuth 로그인 시작 실패"),
             actionNotice: result.ok ? "브라우저에서 코드 입력을 완료한 뒤 인증 완료 확인을 누르세요." : "Hermes OAuth 로그인이 시작되지 않았습니다.",
           });
         } catch (error) {
+          const message = error instanceof Error ? error.message : "Hermes OAuth 로그인에 실패했습니다.";
           set({
             hermesAuthStatus: "error",
-            hermesAuthMessage: error instanceof Error ? error.message : "Hermes OAuth 로그인에 실패했습니다.",
+            hermesAuthMessage: message,
+            operationProgress: finishOperationProgress(authProgress, "error", message),
             actionNotice: "Hermes OAuth 로그인에 실패했습니다.",
           });
         }
@@ -1628,6 +1735,7 @@ export const useQarkoStore = create<QarkoState>()(
           feedback: state.feedback.map(sanitizeFeedbackForStorage),
           reviewNotes: state.reviewNotes.map(sanitizeReviewNoteForStorage),
           activeRun: sanitizeRunForStorage(state.activeRun),
+          operationProgress: undefined,
           projectRuns: projectRunsWithActiveRun(state.projectRuns, state.activeRun),
           projectPendingPrompts: sanitizePromptMapForStorage(state.projectPendingPrompts),
           actionNotice: redactSensitiveText(state.actionNotice),
@@ -1660,6 +1768,7 @@ export const useQarkoStore = create<QarkoState>()(
           ...currentState,
           ...restored,
           activeRun: restoredActiveRun,
+          operationProgress: idleOperationProgress,
           projectRuns: restoredRuns,
           projectPendingPrompts: restoredPendingPrompts,
           showHermesOnboarding: false,

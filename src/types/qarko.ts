@@ -19,6 +19,7 @@ export type HermesToolPreset = "safe" | "work" | "developer" | "automation";
 export type RunnerTarget = "local";
 export type RunCommandStatus = "idle" | "running" | "completed" | "failed";
 export type RunProgressStepStatus = "completed" | "running" | "pending" | "blocked" | "failed";
+export type OperationProgressStatus = "idle" | "running" | "completed" | "error";
 export type ExecutionPhase =
   | "ready"
   | "queued"
@@ -114,6 +115,14 @@ export interface LogEntry {
   status: Status;
 }
 
+export interface TerminalLine {
+  id: string;
+  timestamp: string;
+  stream: "system" | "user" | "hermes" | "stdout" | "stderr";
+  text: string;
+  status: Status;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -174,6 +183,7 @@ export interface Run {
   agentActivities: RunAgentActivity[];
   browserPreview: RunBrowserPreview;
   logs: LogEntry[];
+  terminalLines: TerminalLine[];
   messages: ChatMessage[];
   outputPreview: string;
   stepCount: number;
@@ -182,6 +192,17 @@ export interface Run {
   elapsedMs?: number;
   sessionTranscript?: string;
   hermesSessionId?: string;
+}
+
+export interface OperationProgress {
+  id: string;
+  label: string;
+  status: OperationProgressStatus;
+  percent: number;
+  currentStep: string;
+  lastMessage: string;
+  startedAt?: string;
+  updatedAt?: string;
 }
 
 export interface Approval {
