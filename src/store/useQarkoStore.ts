@@ -13,6 +13,19 @@ import {
   startHermesInstall,
   updateHermesToVerifiedVersion,
 } from "../adapters/hermesDesktop";
+import {
+  interruptGatewaySession,
+  respondToGatewayApproval,
+  respondToGatewayClarify,
+  steerGatewaySession,
+  mapGatewayEventToTimeline,
+  type HermesGatewayTurnResult,
+  type HermesGatewayTurnRequest,
+  runHermesGatewayTurn,
+  fallbackToOneShot,
+} from "../adapters/hermesGateway";
+// JSON-RPC methods tracked by QARKO: session.steer, session.interrupt, approval.respond, clarify.respond.
+// session.create and prompt.submit are handled by the Hermes TUI Gateway runner before fallback.
 import { runLocalHermesTurn } from "../adapters/hermesRunner";
 import { testHermesConnection } from "../adapters/hermesRuntime";
 import {
@@ -44,6 +57,7 @@ import type {
   ChatMessage,
   ExecutionPhase,
   FeedbackEntry,
+  HermesGatewayEvent,
   HermesConnection,
   HermesHealthSnapshot,
   HermesInstallStatus,
@@ -181,6 +195,9 @@ const makeTerminalLine = (
 });
 
 const appendTerminalLine = (run: Run, line: TerminalLine): TerminalLine[] => [...(run.terminalLines ?? []), line].slice(-240);
+
+const appendGatewayEvents = (run: Run, events: HermesGatewayEvent[] = []): HermesGatewayEvent[] =>
+  [...(run.gatewayEvents ?? []), ...events].slice(-300);
 
 const startOperationProgress = (label: string, currentStep: string): OperationProgress => {
   const now = new Date().toISOString();
@@ -431,6 +448,11 @@ const emptyRun: Run = {
   browserPreview: buildBrowserPreview(),
   logs: [],
   terminalLines: [],
+  gatewayStatus: "idle",
+  gatewayEvents: [
+    mapGatewayEventToTimeline("gateway.ready", "QARKO OS is ready to use Hermes TUI Gateway JSON-RPC."),
+  ],
+  pendingGatewayRequest: undefined,
   messages: [],
   outputPreview: "프로젝트를 만들고 Hermes를 연결하면 여기에서 실제 작업 결과를 확인할 수 있습니다.",
   stepCount: 0,
@@ -464,6 +486,11 @@ const buildRunForProject = (project: Project): Run => ({
   terminalLines: [
     makeTerminalLine("system", "QARKO OS가 프로젝트 전용 Hermes CLI 세션을 준비했습니다.", "planned"),
   ],
+  gatewayStatus: "idle",
+  gatewayEvents: [
+    mapGatewayEventToTimeline("gateway.ready", "QARKO OS is ready to connect this project to Hermes TUI Gateway."),
+  ],
+  pendingGatewayRequest: undefined,
   messages: [
     {
       id: `message-${project.id}-system`,
@@ -548,6 +575,12 @@ const sanitizeRunForStorage = (run: Run): Run => ({
   sessionTranscript: redactSensitiveText(run.sessionTranscript ?? ""),
   logs: run.logs.map((log) => ({ ...log, message: redactSensitiveText(log.message) })),
   terminalLines: (run.terminalLines ?? []).map((line) => ({ ...line, text: redactSensitiveText(line.text) })).slice(-240),
+  gatewayEvents: (run.gatewayEvents ?? [])
+    .map((event) => ({ ...event, message: redactSensitiveText(event.message), payload: undefined }))
+    .slice(-300),
+  pendingGatewayRequest: run.pendingGatewayRequest
+    ? { ...run.pendingGatewayRequest, message: redactSensitiveText(run.pendingGatewayRequest.message), payload: undefined }
+    : undefined,
   messages: (run.messages ?? []).map((message) => ({ ...message, content: redactSensitiveText(message.content) })),
   agentActivities: (run.agentActivities ?? []).map((agent) => ({ ...agent, detail: redactSensitiveText(agent.detail) })),
 });
@@ -588,6 +621,12 @@ const normalizeRun = (run: Run): Run => ({
   agentActivities: Array.isArray(run.agentActivities) ? run.agentActivities : buildAgentActivities(undefined, run.activeRoleName),
   browserPreview: run.browserPreview ?? buildBrowserPreview(),
   terminalLines: Array.isArray(run.terminalLines) ? run.terminalLines.slice(-240) : [],
+  gatewayStatus: run.gatewayStatus ?? "idle",
+  gatewayEvents:
+    Array.isArray(run.gatewayEvents) && run.gatewayEvents.length > 0
+      ? run.gatewayEvents.slice(-300)
+      : [mapGatewayEventToTimeline("gateway.ready", "QARKO OS is ready to use Hermes TUI Gateway JSON-RPC.")],
+  pendingGatewayRequest: run.pendingGatewayRequest,
   messages: Array.isArray(run.messages) ? run.messages.map(normalizeChatMessage) : [],
 });
 
@@ -915,6 +954,16 @@ export const useQarkoStore = create<QarkoState>()(
               status: "needs_approval",
               activePhase: "waiting_for_approval",
               commandStatus: "idle",
+              gatewayStatus: "connected",
+              gatewayEvents: appendGatewayEvents(currentRun, [
+                mapGatewayEventToTimeline("approval.request", "approval.request: QARKO is waiting for the user's safe approval before continuing."),
+              ]),
+              pendingGatewayRequest: {
+                id: approvalId,
+                kind: "approval.request",
+                title: "Approval requested",
+                message: approvalAction,
+              },
               progressSteps: buildProgressSteps("waiting_for_approval", "idle"),
             };
             return {
@@ -1015,6 +1064,11 @@ export const useQarkoStore = create<QarkoState>()(
             currentCommand: buildHermesCommandLabel(current.hermesConnection.modelName),
             commandStatus: "running",
             progressSteps: buildProgressSteps(currentRun.hermesSessionId ? "resuming_session" : "starting", "running"),
+            gatewayStatus: currentRun.hermesSessionId ? "connected" : "connecting",
+            gatewayEvents: appendGatewayEvents(currentRun, [
+              mapGatewayEventToTimeline(currentRun.hermesSessionId ? "session.info" : "gateway.ready", currentRun.hermesSessionId ? "session.steer may be used while Hermes is already running." : "session.create and prompt.submit are being prepared."),
+            ]),
+            pendingGatewayRequest: undefined,
             changeSummary: emptyChangeSummary,
             agentActivities: buildAgentActivities(project, "Hermes").map((agent, index) =>
               index === 0 ? { ...agent, status: "running", detail: "Hermes CLI 요청 처리 중" } : agent
@@ -1044,7 +1098,7 @@ export const useQarkoStore = create<QarkoState>()(
         });
 
         try {
-          const result = await runLocalHermesTurn({
+          const gatewayRequest: HermesGatewayTurnRequest = {
             prompt: buildHermesChatPrompt(project, projectRun, userPrompt),
             modelName: state.hermesConnection.modelName,
             provider: state.hermesSetupProvider,
@@ -1052,8 +1106,10 @@ export const useQarkoStore = create<QarkoState>()(
             projectId: project.id,
             runId,
             sessionId: projectRun.hermesSessionId,
+            gatewaySessionId: projectRun.hermesSessionId,
             toolsets: toolsetsForHermesPreset(state.hermesToolPreset),
-          });
+          };
+          const result: HermesGatewayTurnResult = await runLocalHermesTurn(gatewayRequest);
           const output = result.output.trim() || result.message;
           const safeOutput = redactSensitiveText(output);
           const safeResultMessage = redactSensitiveText(result.message);
@@ -1099,6 +1155,9 @@ export const useQarkoStore = create<QarkoState>()(
               status: result.ok ? "completed" : "failed",
               activePhase: result.ok ? "completed" : "failed",
               commandStatus: result.ok ? "completed" : "failed",
+              gatewayStatus: result.fallbackToOneShot ? "fallback" : result.ok ? "connected" : "error",
+              gatewayEvents: appendGatewayEvents(currentRun, result.gatewayEvents ?? []),
+              pendingGatewayRequest: result.pendingGatewayRequest,
               progressSteps: buildProgressSteps(result.ok ? "completed" : "failed", result.ok ? "completed" : "failed"),
               changeSummary: result.changeSummary ?? currentRun.changeSummary,
               agentActivities: buildAgentActivities(project, "Hermes").map((agent, index) =>
@@ -1111,6 +1170,8 @@ export const useQarkoStore = create<QarkoState>()(
               elapsedMs,
               outputPreview: safeOutput,
               hermesSessionId: result.sessionId ?? currentRun.hermesSessionId,
+              // Gateway session id is currently stored in hermesSessionId so session.steer, session.interrupt,
+              // approval.respond, and clarify.respond can target the same project session.
               messages: [...currentRun.messages, assistantMessage],
               terminalLines: [
                 ...appendTerminalLine(currentRun, makeTerminalLine(result.ok ? "hermes" : "stderr", result.ok ? safeOutput : safeResultMessage, result.ok ? "completed" : "failed")),
@@ -1180,6 +1241,11 @@ export const useQarkoStore = create<QarkoState>()(
               status: "failed",
               activePhase: "failed",
               commandStatus: "failed",
+              gatewayStatus: "error",
+              gatewayEvents: appendGatewayEvents(currentRun, [
+                mapGatewayEventToTimeline("error", errorMessage),
+              ]),
+              pendingGatewayRequest: undefined,
               progressSteps: buildProgressSteps("failed", "failed"),
               agentActivities: buildAgentActivities(project, "Hermes").map((agent, index) =>
                 index === 0 ? { ...agent, status: "failed", detail: "Hermes 실행 오류" } : agent

@@ -349,6 +349,26 @@ export const activeRun: Run = {
     { id: "terminal-1", timestamp: "13:04:00", stream: "system", text: "hermes chat -q --model Hermes Mock", status: "running" },
     { id: "terminal-2", timestamp: "13:06:00", stream: "hermes", text: "Reading project context and preparing the next action.", status: "running" },
   ],
+  gatewayStatus: "connected",
+  gatewayEvents: [
+    {
+      id: "gateway-1",
+      kind: "gateway.ready",
+      title: "Hermes Gateway",
+      message: "TUI Gateway JSON-RPC channel is ready.",
+      status: "completed",
+      timestamp: "13:04:00",
+    },
+    {
+      id: "gateway-2",
+      kind: "tool.progress",
+      title: "Tool activity",
+      message: "Hermes is reading project context.",
+      status: "running",
+      timestamp: "13:06:00",
+    },
+  ],
+  pendingGatewayRequest: undefined,
 };
 
 export const plugins: Plugin[] = [

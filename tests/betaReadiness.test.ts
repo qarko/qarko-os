@@ -161,6 +161,58 @@ test("Hermes workbench stays terminal-first, dark, and non-blocking for long ope
   assert.match(rust, /async fn run_hermes_oneshot/);
 });
 
+test("QARKO routes Hermes workbench through TUI Gateway events before one-shot fallback", () => {
+  const types = readFileSync("src/types/qarko.ts", "utf8");
+  const gateway = readFileSync("src/adapters/hermesGateway.ts", "utf8");
+  const runner = readFileSync("src/adapters/hermesRunner.ts", "utf8");
+  const store = readFileSync("src/store/useQarkoStore.ts", "utf8");
+  const dashboard = readFileSync("src/components/dashboard/WorkspaceDashboard.tsx", "utf8");
+  const rust = readFileSync("src-tauri/src/lib.rs", "utf8");
+
+  assert.match(types, /export type HermesGatewayEventKind/);
+  assert.match(types, /export interface HermesGatewayEvent/);
+  assert.match(types, /gatewayEvents: HermesGatewayEvent\[\]/);
+  assert.match(types, /gatewayStatus: HermesGatewayStatus/);
+  assert.match(types, /pendingGatewayRequest\?: HermesGatewayPendingRequest/);
+
+  assert.match(gateway, /session\.create/);
+  assert.match(gateway, /prompt\.submit/);
+  assert.match(gateway, /session\.steer/);
+  assert.match(gateway, /session\.interrupt/);
+  assert.match(gateway, /approval\.respond/);
+  assert.match(gateway, /clarify\.respond/);
+  assert.match(gateway, /mapGatewayEventToTimeline/);
+  assert.match(gateway, /redacted_gateway_payload/);
+  assert.match(gateway, /fallbackToOneShot/);
+
+  assert.match(runner, /runHermesGatewayTurn/);
+  assert.match(runner, /fallbackToOneShot/);
+  assert.match(store, /gatewayEvents/);
+  assert.match(store, /pendingGatewayRequest/);
+  assert.match(store, /runLocalHermesTurn/);
+  assert.match(store, /session\.steer/);
+  assert.match(store, /session\.interrupt/);
+  assert.match(store, /approval\.respond/);
+  assert.match(store, /clarify\.respond/);
+  assert.match(store, /appendGatewayEvents/);
+  assert.match(store, /payload:\s*undefined/);
+
+  assert.match(dashboard, /GatewayTimeline/);
+  assert.match(dashboard, /activeRun\.gatewayEvents/);
+  assert.match(dashboard, /tool\.progress/);
+  assert.match(dashboard, /approval\.request/);
+  assert.match(dashboard, /clarify\.request/);
+  assert.match(dashboard, /session\.steer/);
+  assert.match(dashboard, /session\.interrupt/);
+
+  assert.match(rust, /run_hermes_gateway_turn/);
+  assert.match(rust, /hermes_tui_gateway/);
+  assert.match(rust, /JSON-RPC/);
+  assert.match(rust, /try_hermes_tui_gateway/);
+  assert.match(rust, /prompt\.submit/);
+  assert.match(rust, /respond_hermes_gateway/);
+});
+
 test("execution UI shows Korean phase labels and elapsed timing in workbench and side panel", () => {
   const projectView = readFileSync("src/components/projects/ProjectView.tsx", "utf8");
   const executionPanel = readFileSync("src/components/execution/ExecutionPanel.tsx", "utf8");

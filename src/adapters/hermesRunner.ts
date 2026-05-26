@@ -1,5 +1,6 @@
-import { runHermesWorkbenchStep } from "./hermesDesktop";
+import { runHermesGatewayTurn, type HermesGatewayTurnResult } from "./hermesGateway";
 
+// Legacy fallback path is still provided by runHermesWorkbenchStep inside hermesGateway.fallbackToOneShot.
 export interface HermesWorkspaceChangeSummary {
   filesChanged: number;
   insertions: number;
@@ -20,13 +21,13 @@ export interface HermesRunnerRequest {
   modelName: string;
   provider: string;
   apiKey: string;
-  projectId: string;
-  runId: string;
+  projectId?: string;
+  runId?: string;
   sessionId?: string;
   toolsets?: string;
 }
 
-export interface HermesRunnerResult {
+export interface HermesRunnerResult extends Pick<HermesGatewayTurnResult, "gatewaySessionId" | "gatewayEvents" | "pendingGatewayRequest" | "fallbackToOneShot"> {
   ok: boolean;
   message: string;
   output: string;
@@ -36,7 +37,7 @@ export interface HermesRunnerResult {
 }
 
 export const runLocalHermesTurn = async (request: HermesRunnerRequest): Promise<HermesRunnerResult> => {
-  return runHermesWorkbenchStep({
+  return runHermesGatewayTurn({
     prompt: request.prompt,
     modelName: request.modelName,
     provider: request.provider,
@@ -44,6 +45,7 @@ export const runLocalHermesTurn = async (request: HermesRunnerRequest): Promise<
     projectId: request.projectId,
     runId: request.runId,
     sessionId: request.sessionId,
+    gatewaySessionId: request.sessionId,
     toolsets: request.toolsets,
   });
 };

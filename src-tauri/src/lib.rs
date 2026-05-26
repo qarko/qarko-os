@@ -4,10 +4,11 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -65,6 +66,31 @@ struct HermesOneShotRequest {
     toolsets: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HermesGatewayTurnRequest {
+    prompt: String,
+    model_name: String,
+    provider: String,
+    api_key: String,
+    project_id: Option<String>,
+    run_id: Option<String>,
+    session_id: Option<String>,
+    gateway_session_id: Option<String>,
+    toolsets: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HermesGatewayControlRequest {
+    session_id: Option<String>,
+    request_id: Option<String>,
+    method: String,
+    approved: Option<bool>,
+    response: Option<String>,
+    prompt: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CommandResult {
@@ -74,6 +100,31 @@ struct CommandResult {
     workspace_path: Option<String>,
     session_id: Option<String>,
     change_summary: Option<WorkspaceChangeSummary>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HermesGatewayEvent {
+    id: String,
+    kind: String,
+    title: String,
+    message: String,
+    status: String,
+    timestamp: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HermesGatewayTurnResult {
+    ok: bool,
+    message: String,
+    output: String,
+    workspace_path: Option<String>,
+    session_id: Option<String>,
+    gateway_session_id: Option<String>,
+    change_summary: Option<WorkspaceChangeSummary>,
+    gateway_events: Vec<HermesGatewayEvent>,
+    fallback_to_one_shot: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -1338,6 +1389,287 @@ async fn run_hermes_oneshot(request: HermesOneShotRequest) -> Result<CommandResu
         .map_err(|error| error.to_string())?
 }
 
+fn gateway_event(kind: &str, title: &str, message: &str, status: &str) -> HermesGatewayEvent {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    HermesGatewayEvent {
+        id: format!("gateway-{}-{}", now, kind.replace('.', "-")),
+        kind: kind.to_string(),
+        title: title.to_string(),
+        message: message.to_string(),
+        status: status.to_string(),
+        timestamp: now.to_string(),
+    }
+}
+
+fn gateway_event_from_wire(value: &serde_json::Value) -> Option<HermesGatewayEvent> {
+    let params = value.get("params")?;
+    let event_type = params.get("type")?.as_str()?;
+    let payload = params.get("payload").cloned().unwrap_or(serde_json::Value::Null);
+    let message = payload
+        .get("text")
+        .or_else(|| payload.get("message"))
+        .or_else(|| payload.get("line"))
+        .and_then(|item| item.as_str())
+        .unwrap_or(event_type);
+    Some(gateway_event(
+        event_type,
+        "Hermes Gateway",
+        message,
+        if event_type.contains("complete") {
+            "completed"
+        } else if event_type.contains("request") {
+            "needs_approval"
+        } else {
+            "running"
+        },
+    ))
+}
+
+fn extract_gateway_session_id(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("result")
+        .and_then(|result| result.get("session_id").or_else(|| result.get("sessionId")))
+        .and_then(|session| session.as_str())
+        .map(|session| session.to_string())
+}
+
+fn try_hermes_tui_gateway(request: &HermesGatewayTurnRequest) -> Result<HermesGatewayTurnResult, String> {
+    let prompt = request.prompt.trim();
+    if prompt.is_empty() {
+        return Err("The task prompt for Hermes is empty.".to_string());
+    }
+
+    let workspace_dir = qarko_workspace_dir(request.project_id.clone(), request.run_id.clone())?;
+    let before_changes = snapshot_workspace_changes(&workspace_dir);
+    let mut command = Command::new("python");
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+        .args(["-m", "tui_gateway.entry"])
+        .current_dir(&workspace_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Ok(src_root) = env::var("HERMES_PYTHON_SRC_ROOT") {
+        if !src_root.trim().is_empty() {
+            command.env("HERMES_PYTHON_SRC_ROOT", src_root);
+        }
+    }
+
+    let mut child = command.spawn().map_err(|error| format!("gateway spawn failed: {error}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "gateway stdout was not available".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "gateway stderr was not available".to_string())?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "gateway stdin was not available".to_string())?;
+    let (tx, rx) = mpsc::channel::<String>();
+    let tx_stdout = tx.clone();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().flatten() {
+            let _ = tx_stdout.send(line);
+        }
+    });
+    let tx_stderr = tx.clone();
+    thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().flatten() {
+            let _ = tx_stderr.send(format!(r#"{{"jsonrpc":"2.0","method":"event","params":{{"type":"gateway.stderr","payload":{{"line":{}}}}}}}"#, serde_json::to_string(&line).unwrap_or_else(|_| "\"stderr\"".to_string())));
+        }
+    });
+
+    let mut events = Vec::new();
+    let startup_deadline = Instant::now() + Duration::from_secs(8);
+    let mut ready = false;
+    while Instant::now() < startup_deadline {
+        if let Ok(line) = rx.recv_timeout(Duration::from_millis(250)) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                if let Some(event) = gateway_event_from_wire(&value) {
+                    if event.kind == "gateway.ready" {
+                        ready = true;
+                    }
+                    events.push(event);
+                }
+            }
+            if ready {
+                break;
+            }
+        }
+    }
+    if !ready {
+        let _ = child.kill();
+        return Err("gateway.ready was not received before timeout".to_string());
+    }
+
+    let create_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "qarko-session-create",
+        "method": "session.create",
+        "params": {}
+    });
+    writeln!(stdin, "{}", create_request).map_err(|error| error.to_string())?;
+    stdin.flush().map_err(|error| error.to_string())?;
+
+    let mut gateway_session_id = request.gateway_session_id.clone().or_else(|| request.session_id.clone());
+    let create_deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < create_deadline {
+        if let Ok(line) = rx.recv_timeout(Duration::from_millis(500)) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                if value.get("id").and_then(|id| id.as_str()) == Some("qarko-session-create") {
+                    gateway_session_id = extract_gateway_session_id(&value).or(gateway_session_id);
+                    break;
+                }
+                if let Some(event) = gateway_event_from_wire(&value) {
+                    events.push(event);
+                }
+            }
+        }
+    }
+    let session_id = gateway_session_id
+        .clone()
+        .ok_or_else(|| "session.create did not return a session id".to_string())?;
+    let submit_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "qarko-prompt-submit",
+        "method": "prompt.submit",
+        "params": {
+            "session_id": session_id,
+            "prompt": prompt
+        }
+    });
+    writeln!(stdin, "{}", submit_request).map_err(|error| error.to_string())?;
+    stdin.flush().map_err(|error| error.to_string())?;
+
+    let mut output = String::new();
+    let run_deadline = Instant::now() + Duration::from_secs(180);
+    while Instant::now() < run_deadline {
+        if let Ok(line) = rx.recv_timeout(Duration::from_millis(500)) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                if let Some(event) = gateway_event_from_wire(&value) {
+                    if matches!(event.kind.as_str(), "message.delta" | "message.complete" | "review.summary") {
+                        output.push_str(&event.message);
+                        output.push('\n');
+                    }
+                    let complete = matches!(event.kind.as_str(), "message.complete" | "review.summary");
+                    events.push(event);
+                    if complete {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    let _ = child.kill();
+    if output.trim().is_empty() {
+        return Err("prompt.submit did not produce a final message before timeout".to_string());
+    }
+    let change_summary = summarize_workspace_changes(&before_changes, &snapshot_workspace_changes(&workspace_dir));
+    Ok(HermesGatewayTurnResult {
+        ok: true,
+        message: "Hermes TUI Gateway completed the project turn.".to_string(),
+        output,
+        workspace_path: Some(canonical_path_text(&workspace_dir)),
+        session_id: Some(session_id.clone()),
+        gateway_session_id: Some(session_id),
+        change_summary: Some(change_summary),
+        gateway_events: events,
+        fallback_to_one_shot: false,
+    })
+}
+
+#[tauri::command]
+async fn run_hermes_gateway_turn(
+    request: HermesGatewayTurnRequest,
+) -> Result<HermesGatewayTurnResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_hermes_gateway_turn_blocking(request))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn run_hermes_gateway_turn_blocking(
+    request: HermesGatewayTurnRequest,
+) -> Result<HermesGatewayTurnResult, String> {
+    // Hermes TUI Gateway JSON-RPC integration point.
+    // Target RPC flow: session.create -> prompt.submit, then streamed tool.progress,
+    // approval.request, clarify.request, session.steer, and session.interrupt events.
+    if let Ok(result) = try_hermes_tui_gateway(&request) {
+        return Ok(result);
+    }
+
+    // If the installed Hermes/Python environment cannot expose the gateway on this machine,
+    // QARKO preserves product behavior by falling back to the verified one-shot runner.
+    let one_shot = HermesOneShotRequest {
+        prompt: request.prompt,
+        model_name: request.model_name,
+        provider: request.provider,
+        api_key: request.api_key,
+        project_id: request.project_id,
+        run_id: request.run_id,
+        session_id: request.session_id.or(request.gateway_session_id),
+        toolsets: request.toolsets,
+    };
+    let result = run_hermes_oneshot_blocking(one_shot)?;
+    let session_id = result.session_id.clone();
+    let gateway_session_id = session_id.clone();
+    Ok(HermesGatewayTurnResult {
+        ok: result.ok,
+        message: result.message,
+        output: result.output,
+        workspace_path: result.workspace_path,
+        session_id,
+        gateway_session_id,
+        change_summary: result.change_summary,
+        gateway_events: vec![
+            gateway_event(
+                "status.update",
+                "Hermes Gateway",
+                "hermes_tui_gateway JSON-RPC bridge prepared; one-shot fallback executed for this build.",
+                "running",
+            ),
+            gateway_event(
+                "message.complete",
+                "Hermes message",
+                "Fallback result is available. Future Gateway builds will stream message.delta and tool.progress here.",
+                "completed",
+            ),
+        ],
+        fallback_to_one_shot: true,
+    })
+}
+
+#[tauri::command]
+fn respond_hermes_gateway(request: HermesGatewayControlRequest) -> Result<CommandResult, String> {
+    let method = request.method.trim();
+    // Native control bridge placeholder for JSON-RPC approval.respond, clarify.respond,
+    // session.steer, and session.interrupt. The persistent gateway process will own this
+    // transport in the next step; returning a structured result avoids a missing-handler crash.
+    let detail = format!(
+        "Hermes Gateway control queued: method={} session={:?} request={:?} approved={:?} response_present={} prompt_present={}",
+        method,
+        request.session_id,
+        request.request_id,
+        request.approved,
+        request.response.as_deref().unwrap_or("").len() > 0,
+        request.prompt.as_deref().unwrap_or("").len() > 0
+    );
+    Ok(CommandResult {
+        ok: false,
+        message: "Hermes Gateway control transport is not attached yet.".to_string(),
+        output: detail,
+        workspace_path: None,
+        session_id: request.session_id,
+        change_summary: None,
+    })
+}
+
 fn run_hermes_oneshot_blocking(request: HermesOneShotRequest) -> Result<CommandResult, String> {
     let hermes = verified_hermes_executable()?;
     let prompt = request.prompt.trim();
@@ -1479,6 +1811,8 @@ pub fn run() {
             open_hermes_login_terminal,
             check_hermes_auth_status,
             open_qarko_workspace_path,
+            respond_hermes_gateway,
+            run_hermes_gateway_turn,
             run_hermes_oneshot
         ])
         .run(tauri::generate_context!())

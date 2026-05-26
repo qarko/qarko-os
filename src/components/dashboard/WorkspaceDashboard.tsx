@@ -1,7 +1,7 @@
 import { Code2, FolderPlus, Loader2, Play, Settings2, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useQarkoStore } from "../../store/useQarkoStore";
-import type { AutomationMode, TerminalLine } from "../../types/qarko";
+import type { AutomationMode, HermesGatewayEvent, TerminalLine } from "../../types/qarko";
 import { StatusBadge } from "../ui/StatusBadge";
 
 // 한 세션 안에서 Hermes와 계속 대화하되, 중앙 화면은 currentSessionLogs 카드 대신 Hermes CLI 터미널만 보여준다.
@@ -32,6 +32,49 @@ const TerminalTranscript = ({ lines }: { lines: TerminalLine[] }) => (
       ) : (
         <p className="text-[#8b95a7]">Hermes CLI 출력이 이곳에 표시됩니다.</p>
       )}
+    </div>
+  </div>
+);
+
+const gatewayTone = (event: HermesGatewayEvent) => {
+  if (event.kind === "approval.request" || event.kind === "clarify.request") return "border-amber-500/40 bg-amber-500/10 text-amber-100";
+  if (event.kind === "error") return "border-red-500/40 bg-red-500/10 text-red-100";
+  if (event.kind.startsWith("tool.")) return "border-cyan-500/30 bg-cyan-500/10 text-cyan-100";
+  return "border-[#30343d] bg-[#151922] text-[#d7dde8]";
+};
+
+const GatewayTimeline = ({ events, fallbackLines }: { events: HermesGatewayEvent[]; fallbackLines: TerminalLine[] }) => (
+  <div className="flex h-full min-h-0 flex-col rounded-md border border-[#30343d] bg-[#0f1115] p-3 text-xs leading-5 text-[#d7dde8] shadow-sm">
+    <div className="mb-3 flex items-center justify-between gap-3 border-b border-[#272b33] pb-2">
+      <span className="font-semibold text-[#f1f5f9]">Hermes TUI Gateway</span>
+      <span className="text-[#8b95a7]">session.create / prompt.submit / session.steer / session.interrupt</span>
+    </div>
+    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto thin-scrollbar">
+      {events.length > 0 ? (
+        events.map((event) => (
+          <article key={event.id} className={`rounded-md border p-3 ${gatewayTone(event)}`}>
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold text-[#f8fafc]">{event.title}</span>
+              <span className="font-mono text-[11px] text-[#8b95a7]">{event.timestamp}</span>
+            </div>
+            <p className="font-mono text-[11px] text-[#8b95a7]">
+              {event.kind}
+              {event.kind === "tool.progress" ? " -> tool.progress" : ""}
+              {event.kind === "approval.request" ? " -> approval.request" : ""}
+              {event.kind === "clarify.request" ? " -> clarify.request" : ""}
+            </p>
+            <p className="mt-2 whitespace-pre-wrap break-words">{event.message}</p>
+          </article>
+        ))
+      ) : (
+        <TerminalTranscript lines={fallbackLines} />
+      )}
+      {events.length > 0 && fallbackLines.length > 0 ? (
+        <div className="mt-3 rounded-md border border-[#30343d] bg-[#101216] p-3">
+          <p className="mb-2 font-semibold text-[#f1f5f9]">Fallback terminal output</p>
+          <TerminalTranscript lines={fallbackLines} />
+        </div>
+      ) : null}
     </div>
   </div>
 );
@@ -101,7 +144,7 @@ export function WorkspaceDashboard() {
 
       <section className="chat-viewport min-h-0 flex-1 overflow-hidden bg-[#101216] px-4 py-5">
         <div className="mx-auto flex h-full max-w-5xl flex-col">
-          <TerminalTranscript lines={activeRun.terminalLines} />
+          <GatewayTimeline events={activeRun.gatewayEvents} fallbackLines={activeRun.terminalLines} />
         </div>
       </section>
 

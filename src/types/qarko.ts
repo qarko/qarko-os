@@ -20,6 +20,25 @@ export type RunnerTarget = "local";
 export type RunCommandStatus = "idle" | "running" | "completed" | "failed";
 export type RunProgressStepStatus = "completed" | "running" | "pending" | "blocked" | "failed";
 export type OperationProgressStatus = "idle" | "running" | "completed" | "error";
+export type HermesGatewayStatus = "idle" | "connecting" | "connected" | "fallback" | "error";
+export type HermesGatewayEventKind =
+  | "gateway.ready"
+  | "session.info"
+  | "status.update"
+  | "message.delta"
+  | "message.complete"
+  | "thinking.delta"
+  | "reasoning.delta"
+  | "tool.start"
+  | "tool.progress"
+  | "tool.complete"
+  | "tool.generating"
+  | "approval.request"
+  | "clarify.request"
+  | "sudo.request"
+  | "secret.request"
+  | "review.summary"
+  | "error";
 export type ExecutionPhase =
   | "ready"
   | "queued"
@@ -123,6 +142,24 @@ export interface TerminalLine {
   status: Status;
 }
 
+export interface HermesGatewayEvent {
+  id: string;
+  kind: HermesGatewayEventKind;
+  title: string;
+  message: string;
+  status: Status;
+  timestamp: string;
+  payload?: unknown;
+}
+
+export interface HermesGatewayPendingRequest {
+  id: string;
+  kind: "approval.request" | "clarify.request" | "sudo.request" | "secret.request";
+  title: string;
+  message: string;
+  payload?: unknown;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -184,6 +221,9 @@ export interface Run {
   browserPreview: RunBrowserPreview;
   logs: LogEntry[];
   terminalLines: TerminalLine[];
+  gatewayStatus: HermesGatewayStatus;
+  gatewayEvents: HermesGatewayEvent[];
+  pendingGatewayRequest?: HermesGatewayPendingRequest;
   messages: ChatMessage[];
   outputPreview: string;
   stepCount: number;
