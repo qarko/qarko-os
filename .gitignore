@@ -8,3 +8,6 @@ vite-dev*.log
 .data/
 src-tauri/target/
 src-tauri/gen/
+.superpowers/
+.playwright-cli/
+output/

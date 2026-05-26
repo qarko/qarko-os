@@ -4,14 +4,14 @@ import type { AppView } from "../../types/qarko";
 import { StatusBadge } from "../ui/StatusBadge";
 
 const navItems: Array<{ view: AppView; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { view: "workspace", label: "대시보드", icon: CircuitBoard },
+  { view: "workspace", label: "작업실", icon: CircuitBoard },
   { view: "new-project", label: "새 프로젝트", icon: Sparkles },
   { view: "plugins", label: "플러그인", icon: Plug },
   { view: "feedback", label: "피드백", icon: MessageSquareText },
 ];
 
 export function Sidebar() {
-  const { workspace, projects, selectedProjectId, view, setView, selectProject, feedback } = useQarkoStore();
+  const { feedback, projects, selectProject, selectedProjectId, setView, view, workspace } = useQarkoStore();
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-line bg-[#f5f7f2]">
@@ -25,7 +25,7 @@ export function Sidebar() {
             <p className="text-xs text-moss">{workspace.name}</p>
           </div>
         </div>
-        <p className="mt-4 text-sm leading-5 text-stone-600">{workspace.tagline}</p>
+        <p className="mt-4 text-sm leading-5 text-stone-600">Hermes CLI를 쉽게 쓰는 작업실</p>
       </div>
 
       <nav className="space-y-1 border-b border-line p-3">
@@ -58,12 +58,17 @@ export function Sidebar() {
           <FolderKanban className="h-4 w-4 text-moss" />
         </div>
         <div className="space-y-2">
+          {projects.length === 0 ? (
+            <button onClick={() => setView("new-project")} className="w-full rounded-md border border-dashed border-line bg-white/60 p-3 text-left text-xs leading-5 text-stone-600 hover:bg-white">
+              첫 프로젝트를 만들면 여기에서 바로 전환할 수 있습니다.
+            </button>
+          ) : null}
           {projects.map((project) => (
             <button
               key={project.id}
               onClick={() => selectProject(project.id)}
               className={`w-full rounded-md border p-3 text-left transition ${
-                selectedProjectId === project.id && view === "project"
+                selectedProjectId === project.id
                   ? "border-signal bg-white shadow-sm"
                   : "border-line bg-white/60 hover:bg-white"
               }`}

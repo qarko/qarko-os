@@ -22,12 +22,12 @@ const easeOptions: Array<{ value: FeedbackEntry["ease"]; label: string; tone: "c
 
 const betaTesterPost = `QARKO OS 베타 테스터 3~5명을 찾고 있습니다.
 
-QARKO OS는 Hermes Agent를 비개발자도 Windows 앱에서 쉽게 설치/설정하고, 1인 사업 운영에 활용할 수 있게 만드는 실시간 운영체제입니다.
+QARKO OS는 Hermes Agent와 CLI를 비개발자도 Windows 앱에서 쉽게 설치, 설정, 실행할 수 있게 만드는 작업 앱입니다.
 
 테스트 요청:
 1. Windows 설치 파일로 설치
 2. 첫 실행 Hermes 설정 마법사 진행
-3. 막히는 지점이나 UX 피드백 작성
+3. 실제로 해보고 싶은 작업을 입력한 뒤 막히는 지점이나 UX 피드백 작성
 
 개발 지식이 없어도 괜찮습니다. 초보자 관점의 막힘이 가장 중요합니다.`;
 

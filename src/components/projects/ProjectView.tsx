@@ -1,17 +1,75 @@
 import { ArrowRight, Bot, ShieldCheck } from "lucide-react";
 import { automationPolicies } from "../../data/mockData";
 import { useQarkoStore } from "../../store/useQarkoStore";
+import type { ExecutionPhase, Run } from "../../types/qarko";
 import { ApprovalCard } from "../approvals/ApprovalCard";
 import { ArtifactLibrary } from "../artifacts/ArtifactLibrary";
 import { StatusBadge } from "../ui/StatusBadge";
 import { SectionHeader } from "../ui/SectionHeader";
 
+const executionPhaseLabel: Record<ExecutionPhase, string> = {
+  ready: "준비됨",
+  queued: "실행 대기",
+  starting: "Hermes 시작 중",
+  resuming_session: "이전 세션 이어가는 중",
+  running: "실행 중",
+  receiving_output: "응답 수신 중",
+  waiting_for_approval: "승인 대기",
+  completed: "완료",
+  failed: "오류",
+  cancelled: "취소됨",
+};
+
+const formatElapsed = (elapsedMs: number) => {
+  if (elapsedMs < 1000) return `${elapsedMs}ms`;
+  const totalSeconds = Math.floor(elapsedMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}시간 ${minutes}분`;
+  if (minutes > 0) return `${minutes}분 ${seconds}초`;
+  return `${seconds}초`;
+};
+
+const getRunTimeLabel = (run: Run) => {
+  if (typeof run.elapsedMs === "number") return `경과 ${formatElapsed(run.elapsedMs)}`;
+  if (run.startedAt) {
+    const startedAtMs = new Date(run.startedAt).getTime();
+    if (Number.isFinite(startedAtMs)) return `진행 중 (${formatElapsed(Math.max(Date.now() - startedAtMs, 0))})`;
+  }
+  if (run.activePhase === "ready" || run.activePhase === "queued") return "대기 중";
+  if (
+    run.activePhase === "starting" ||
+    run.activePhase === "resuming_session" ||
+    run.activePhase === "running" ||
+    run.activePhase === "receiving_output"
+  ) {
+    return "진행 중";
+  }
+  if (run.activePhase === "waiting_for_approval") return "승인 대기";
+  if (run.activePhase === "completed") return "완료";
+  if (run.activePhase === "failed") return "오류";
+  return "취소됨";
+};
+
 export function ProjectView() {
-  const { projects, selectedProjectId, approvals, artifacts } = useQarkoStore();
+  const { projects, selectedProjectId, approvals, artifacts, activeRun } = useQarkoStore();
   const project = projects.find((item) => item.id === selectedProjectId) ?? projects[0];
+  if (!project) {
+    return (
+      <div className="mx-auto max-w-7xl p-5 lg:p-8">
+        <div className="rounded-md border border-line bg-white p-8 text-center shadow-sm">
+          <h1 className="text-xl font-semibold text-ink">프로젝트가 없습니다</h1>
+          <p className="mt-2 text-sm text-stone-600">새 프로젝트를 만들거나 기존 세션을 열어 주세요.</p>
+        </div>
+      </div>
+    );
+  }
   const policy = automationPolicies.find((item) => item.mode === project.automationMode) ?? automationPolicies[1];
   const projectApprovals = approvals.filter((approval) => approval.projectId === project.id);
   const projectArtifacts = artifacts.filter((artifact) => artifact.projectId === project.id);
+  const runForProject = activeRun.projectId === project.id ? activeRun : null;
+  const activeMessages = runForProject ? activeRun.messages : [];
 
   return (
     <div className="mx-auto max-w-7xl p-5 lg:p-8">
@@ -41,6 +99,35 @@ export function ProjectView() {
           </div>
         </div>
       </div>
+
+      <section className="mb-6">
+        <SectionHeader title="Hermes Workbench" eyebrow="Session Chat" />
+        <div className="rounded-md border border-line bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium text-stone-600">{runForProject?.title ?? "프로젝트 세션 준비 중"}</p>
+              {runForProject ? (
+                <p className="truncate text-xs text-moss">
+                  {executionPhaseLabel[runForProject.activePhase]} · {getRunTimeLabel(runForProject)}
+                </p>
+              ) : null}
+            </div>
+            {runForProject ? <StatusBadge tone={runForProject.status} /> : null}
+          </div>
+          {activeMessages.length ? (
+            <div className="space-y-2">
+              {activeMessages.map((message) => (
+                <article key={message.id} className="rounded-md bg-panel px-3 py-2">
+                  <p className="text-[11px] uppercase text-moss">{message.role}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink">{message.content}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-stone-600">아직 대화 메시지가 없습니다.</p>
+          )}
+        </div>
+      </section>
 
       <div className="mb-6 grid gap-6 xl:grid-cols-[1fr_0.9fr]">
         <section>

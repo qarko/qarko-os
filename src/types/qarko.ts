@@ -15,6 +15,41 @@ export type RuntimeStatus = "connected" | "not_connected" | "mock";
 export type SyncStatus = "idle" | "syncing" | "synced" | "error";
 export type HermesStatus = "not_configured" | "testing" | "connected" | "error";
 export type HermesInstallStatus = "unknown" | "installed" | "missing" | "installing" | "error";
+export type HermesToolPreset = "safe" | "work" | "developer" | "automation";
+export type RunnerTarget = "local";
+export type RunCommandStatus = "idle" | "running" | "completed" | "failed";
+export type RunProgressStepStatus = "completed" | "running" | "pending" | "blocked" | "failed";
+export type OperationProgressStatus = "idle" | "running" | "completed" | "error";
+export type HermesGatewayStatus = "idle" | "connecting" | "connected" | "fallback" | "error";
+export type HermesGatewayEventKind =
+  | "gateway.ready"
+  | "session.info"
+  | "status.update"
+  | "message.delta"
+  | "message.complete"
+  | "thinking.delta"
+  | "reasoning.delta"
+  | "tool.start"
+  | "tool.progress"
+  | "tool.complete"
+  | "tool.generating"
+  | "approval.request"
+  | "clarify.request"
+  | "sudo.request"
+  | "secret.request"
+  | "review.summary"
+  | "error";
+export type ExecutionPhase =
+  | "ready"
+  | "queued"
+  | "starting"
+  | "resuming_session"
+  | "running"
+  | "receiving_output"
+  | "waiting_for_approval"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface Workspace {
   id: string;
@@ -99,6 +134,76 @@ export interface LogEntry {
   status: Status;
 }
 
+export interface TerminalLine {
+  id: string;
+  timestamp: string;
+  stream: "system" | "user" | "hermes" | "stdout" | "stderr";
+  text: string;
+  status: Status;
+}
+
+export interface HermesGatewayEvent {
+  id: string;
+  kind: HermesGatewayEventKind;
+  title: string;
+  message: string;
+  status: Status;
+  timestamp: string;
+  payload?: unknown;
+}
+
+export interface HermesGatewayPendingRequest {
+  id: string;
+  kind: "approval.request" | "clarify.request" | "sudo.request" | "secret.request";
+  title: string;
+  message: string;
+  payload?: unknown;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  createdAt: string;
+  status: Status;
+}
+
+export interface RunProgressStep {
+  id: string;
+  label: string;
+  status: RunProgressStepStatus;
+}
+
+export interface RunChangeSummary {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  files?: RunChangedFile[];
+  truncated?: boolean;
+  filesTruncated?: boolean;
+  fileLimit?: number;
+}
+
+export interface RunChangedFile {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  insertions: number;
+  deletions: number;
+}
+
+export interface RunAgentActivity {
+  id: string;
+  name: string;
+  status: Status;
+  detail: string;
+}
+
+export interface RunBrowserPreview {
+  enabled: boolean;
+  label: string;
+  url?: string;
+}
+
 export interface Run {
   id: string;
   projectId: string;
@@ -106,9 +211,38 @@ export interface Run {
   activeRoleName: string;
   modelName: string;
   status: Status;
+  runnerTarget: RunnerTarget;
+  activePhase: ExecutionPhase;
+  currentCommand?: string;
+  commandStatus: RunCommandStatus;
+  progressSteps: RunProgressStep[];
+  changeSummary: RunChangeSummary;
+  agentActivities: RunAgentActivity[];
+  browserPreview: RunBrowserPreview;
   logs: LogEntry[];
+  terminalLines: TerminalLine[];
+  gatewayStatus: HermesGatewayStatus;
+  gatewayEvents: HermesGatewayEvent[];
+  pendingGatewayRequest?: HermesGatewayPendingRequest;
+  messages: ChatMessage[];
   outputPreview: string;
   stepCount: number;
+  startedAt?: string;
+  completedAt?: string;
+  elapsedMs?: number;
+  sessionTranscript?: string;
+  hermesSessionId?: string;
+}
+
+export interface OperationProgress {
+  id: string;
+  label: string;
+  status: OperationProgressStatus;
+  percent: number;
+  currentStep: string;
+  lastMessage: string;
+  startedAt?: string;
+  updatedAt?: string;
 }
 
 export interface Approval {
@@ -125,9 +259,10 @@ export interface Artifact {
   id: string;
   projectId: string;
   title: string;
-  type: "plan" | "research" | "draft" | "workflow" | "review";
+  type: "plan" | "research" | "draft" | "workflow" | "review" | "workspace";
   summary: string;
   createdAt: string;
+  path?: string;
 }
 
 export interface Plugin {
@@ -193,6 +328,16 @@ export interface HermesConnectionResult {
   availableModels: string[];
 }
 
+export interface HermesHealthSnapshot {
+  ok: boolean;
+  configPath?: string;
+  envPath?: string;
+  statusOutput: string;
+  doctorOutput: string;
+  toolsOutput: string;
+  message: string;
+}
+
 export interface WorkspaceSnapshot {
   workspace: Workspace;
   projects: Project[];
@@ -204,6 +349,7 @@ export interface WorkspaceSnapshot {
   feedback: FeedbackEntry[];
   reviewNotes?: ReviewNote[];
   activeRun: Run;
+  projectRuns?: Record<string, Run>;
   actionNotice: string;
   updatedAt?: string;
 }

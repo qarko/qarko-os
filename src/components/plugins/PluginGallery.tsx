@@ -22,7 +22,7 @@ export function PluginGallery() {
         <p className="text-sm font-semibold uppercase tracking-normal text-moss">Plugins</p>
         <h1 className="mt-1 text-3xl font-bold text-ink">Codex식 플러그인 갤러리</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-          MVP에서는 실제 설치 대신 권한, 위험, 워크플로 호환성을 보여주는 운영 UX를 검증합니다.
+          Hermes 작업을 확장할 권한, 위험, 워크플로 호환성을 확인하고 필요한 도구만 켜는 공간입니다.
         </p>
       </div>
 

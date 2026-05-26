@@ -1,52 +1,63 @@
-# QARKO OS Beta Test Playbook
+# QARKO OS 베타 테스트 플레이북
 
-## Goal
+## 목표
 
-Recruit 3 to 5 free testers who are comfortable trying a Windows installer and giving practical feedback. The main success signal is not praise; it is finding where a non-developer gets stuck.
+무료 베타 테스터 3~5명이 QARKO OS를 설치하고, Hermes 연결 후 실제 사업 작업을 1개씩 실행해보게 한다. 성공 기준은 칭찬이 아니라 “비개발자가 어디서 막히는지”를 찾는 것이다.
 
-## Tester Profile
+## 테스터 조건
 
-- Windows user
-- Not required to know coding, PowerShell, or terminal commands
-- Interested in AI tools, 1-person business workflows, or business automation
-- Willing to install the app, try Hermes setup, and send feedback from inside QARKO OS
+- Windows 사용자
+- 코딩, PowerShell, 터미널 사용 경험이 없어도 됨
+- AI 도구, 1인 사업, 콘텐츠/마케팅 자동화에 관심이 있음
+- 설치 후 QARKO 안에서 피드백을 남겨줄 수 있음
 
-## Test Script
+## 테스트 스크립트
 
-1. Install QARKO OS from the installer.
-2. Launch QARKO OS.
-3. Walk through the Hermes setup wizard.
-4. Pick the model/provider closest to your real environment.
-5. Try to save the setup and run a connection test.
-6. Open Feedback.
-7. Write where you got stuck, what disappeared, what wording was unclear, and whether you could continue.
-8. Click `작성한 피드백 보내기`.
+1. 설치 파일로 QARKO OS를 설치한다.
+2. QARKO OS를 실행한다.
+3. 준비 체크리스트에서 Hermes 설치 상태를 확인한다.
+4. 모델 제공자와 모델을 선택한다.
+5. OAuth 또는 API 키 방식으로 연결한다.
+6. 작업실에서 본인의 실제 사업 아이디어나 오늘 할 일을 입력한다.
+7. `Hermes 실행`을 눌러 결과를 확인한다.
+8. 오른쪽 실시간 패널에서 실행 로그, 산출물, 승인, 피드백 탭을 확인한다.
+9. 막힌 지점, 이상한 문구, 사라진 화면, 이해가 안 된 버튼을 피드백으로 남긴다.
+10. 피드백 보내기를 눌러 제출한다.
 
-## Threads Post
+## 테스터에게 설명할 핵심 문구
+
+QARKO OS는 Hermes를 터미널 없이 쉽게 쓰게 해주는 Windows 앱입니다. 설치, 모델 연결, 실행 로그, 결과 확인, 피드백 제출까지 앱 안에서 진행합니다.
+
+QARKO OS의 샌드박스(안전 승인 모드)는 AI가 어디까지 자동으로 움직일지 사용자가 먼저 정하는 보호 흐름입니다. 베타에서는 위험 작업을 승인 대기 목록으로 보여주고, 검증된 Hermes 실행 파일만 사용하도록 제한합니다. OS 수준 파일 격리와 더 강한 권한 차단은 상용화 전 추가 보안 과제로 남겨둡니다.
+
+## Threads 모집 문구 초안
 
 QARKO OS 베타 테스터 3~5명을 찾고 있습니다.
 
-QARKO OS는 Hermes Agent를 비개발자도 Windows 앱에서 쉽게 설치/설정하고, 1인 사업 운영에 활용할 수 있게 만드는 실시간 운영체제입니다.
+QARKO OS는 Hermes Agent를 비개발자도 Windows에서 쉽게 설치/설정하고, 1인 사업 운영에 사용할 수 있게 만드는 작업실 앱입니다. Codex나 Claude Code처럼 작업을 입력하면 AI가 실행 로그와 결과를 보여주는 방향으로 만들고 있습니다.
 
 테스트 요청:
+
 1. Windows 설치 파일로 설치
-2. 첫 실행 Hermes 설정 마법사 진행
-3. 막히는 지점은 앱 안의 피드백 화면에서 저장 후 보내기
+2. QARKO 안에서 Hermes 준비 체크리스트 진행
+3. 본인의 실제 사업 아이디어나 오늘 할 일을 입력
+4. Hermes 실행 결과 확인
+5. 막힌 지점과 UX 피드백 제출
 
-개발 지식이 없어도 괜찮습니다. 오히려 초보자 관점의 막힘이 가장 중요합니다.
+개발 지식이 없어도 괜찮습니다. 오히려 초보자 관점에서 어디가 어려운지 알려주는 것이 가장 중요합니다.
 
-## Triage Rules
+## 이슈 우선순위
 
-- P0: App closes, installer fails, feedback cannot be sent.
-- P1: Hermes install or login cannot finish from the UI.
-- P2: User can continue, but wording or next action is unclear.
-- P3: Visual polish, layout density, naming, or preference feedback.
+- P0: 앱이 꺼짐, 설치 실패, 피드백 전송 실패
+- P1: Hermes 설치, 인증, 모델 연결, 실행이 UI에서 끝나지 않음
+- P2: 계속 진행은 가능하지만 문구나 다음 행동이 불명확함
+- P3: 디자인 밀도, 이름, 위치, 취향 피드백
 
-## Daily Loop
+## 매일 확인 루프
 
-1. Open QARKO OS Feedback.
-2. Click `서버 피드백 불러오기`.
-3. Group feedback by P0/P1/P2/P3.
-4. Fix P0/P1 first.
-5. Rebuild installer.
-6. Send updated installer to testers.
+1. QARKO OS 피드백 화면을 연다.
+2. 서버 피드백 불러오기를 누른다.
+3. Discord에 들어온 피드백을 P0/P1/P2/P3로 나눈다.
+4. P0/P1을 먼저 고친다.
+5. 설치 파일을 다시 빌드한다.
+6. 테스터에게 업데이트 설치 파일을 전달한다.
